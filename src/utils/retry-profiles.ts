@@ -1,4 +1,4 @@
-import type { RetryOptions } from "./retry";
+import type { RetryOptions } from "@/utils/retry";
 
 export type RetryProfile = Pick<
   RetryOptions,

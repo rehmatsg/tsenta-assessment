@@ -1,21 +1,21 @@
 import { mkdir } from "node:fs/promises";
 import process from "node:process";
 import { chromium, type BrowserContext, type Page, type Video } from "playwright";
-import { acmeHandler } from "./handlers/acme";
-import { globexHandler } from "./handlers/globex";
-import { sampleProfile } from "./profile";
+import { acmeHandler } from "@/handlers/acme";
+import { globexHandler } from "@/handlers/globex";
+import { sampleProfile } from "@/profile";
 import {
   LOW_OVERHEAD_PROFILE_NAME,
   createHumanLikeEngine,
-} from "./utils/human-like";
-import { createLogger, type RunSummaryItem } from "./utils/logger";
+} from "@/utils/human-like";
+import { createLogger, type RunSummaryItem } from "@/utils/logger";
 import type {
   ATSHandler,
   ATSHandlerContext,
   ATSRuntimeOptions,
   PlatformId,
-} from "./handlers/types";
-import type { ApplicationResult, UserProfile } from "./types";
+} from "@/handlers/types";
+import type { ApplicationResult, UserProfile } from "@/types";
 
 /**
  * ============================================================

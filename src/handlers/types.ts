@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { UserProfile } from "../types";
+import type { UserProfile } from "@/types";
 
 export type PlatformId = "acme" | "globex";
 

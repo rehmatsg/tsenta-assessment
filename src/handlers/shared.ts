@@ -1,12 +1,12 @@
 import type { Page } from "playwright";
-import type { ATSHandlerContext } from "./types";
+import type { ATSHandlerContext } from "@/handlers/types";
 import {
   checkByValue,
   selectValue,
   waitForRequiredSelector,
-} from "../utils/field-filler";
-import { withRetry } from "../utils/retry";
-import type { RetryProfile } from "../utils/retry-profiles";
+} from "@/utils/field-filler";
+import { withRetry } from "@/utils/retry";
+import type { RetryProfile } from "@/utils/retry-profiles";
 
 type LogStep = (scope: string, message: string) => void;
 

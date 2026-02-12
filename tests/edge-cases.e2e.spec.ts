@@ -1,16 +1,16 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Browser, Page } from "playwright";
-import { acmeHandler } from "../src/handlers/acme";
-import { globexHandler } from "../src/handlers/globex";
+import { acmeHandler } from "@/handlers/acme";
+import { globexHandler } from "@/handlers/globex";
 import type {
   ATSHandler,
   ATSHandlerContext,
   ATSRuntimeOptions,
   HumanLikeEngine,
-} from "../src/handlers/types";
-import { sampleProfile } from "../src/profile";
-import type { UserProfile } from "../src/types";
+} from "@/handlers/types";
+import { sampleProfile } from "@/profile";
+import type { UserProfile } from "@/types";
 
 const baseUrl = "http://localhost:3939";
 

@@ -1,5 +1,5 @@
 import type { Locator, Page } from "playwright";
-import type { HumanLikeEngine } from "../handlers/types";
+import type { HumanLikeEngine } from "@/handlers/types";
 
 export const LOW_OVERHEAD_PROFILE_NAME = "low-overhead";
 

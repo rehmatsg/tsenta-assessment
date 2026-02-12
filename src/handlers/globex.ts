@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
-import type { ATSHandler, ATSHandlerContext } from "./types";
-import type { UserProfile } from "../types";
-import { setFile } from "../utils/field-filler";
+import type { ATSHandler, ATSHandlerContext } from "@/handlers/types";
+import type { UserProfile } from "@/types";
+import { setFile } from "@/utils/field-filler";
 import {
   ACTION_PAUSE,
   GLOBEX_SECTION_OPEN_RETRY_PROFILE,
@@ -9,14 +9,14 @@ import {
   GLOBEX_TYPEAHEAD_RETRY_PROFILE,
   PRE_SUBMIT_PAUSE,
   SINGLE_ATTEMPT_RETRY_PROFILE,
-} from "../utils/retry-profiles";
+} from "@/utils/retry-profiles";
 import {
   mapEducation,
   mapExperienceLevel,
   mapReferralSource,
   mapSkill,
-} from "../mappings/registry";
-import { runSection, type SectionController } from "./sections";
+} from "@/mappings/registry";
+import { runSection, type SectionController } from "@/handlers/sections";
 import {
   fillOptionalFieldWithLogs,
   humanCheckSelector,
@@ -26,7 +26,7 @@ import {
   humanToggleState,
   withOptionalRetry,
   waitVisibleWithRetry,
-} from "./shared";
+} from "@/handlers/shared";
 
 type GlobexSectionId = "contact" | "qualifications" | "additional";
 

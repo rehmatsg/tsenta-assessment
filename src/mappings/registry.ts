@@ -1,5 +1,5 @@
-import type { PlatformId } from "../handlers/types";
-import type { UserProfile } from "../types";
+import type { PlatformId } from "@/handlers/types";
+import type { UserProfile } from "@/types";
 
 type ExperienceLevelMap = Record<UserProfile["experienceLevel"], string>;
 type EducationMap = Record<UserProfile["education"], string>;

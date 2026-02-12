@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { ATSHandlerContext } from "./types";
+import type { ATSHandlerContext } from "@/handlers/types";
 
 export interface SectionController<TSectionId extends string | number> {
   ensureActive(
