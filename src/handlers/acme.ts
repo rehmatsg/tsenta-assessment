@@ -1,12 +1,7 @@
 import type { Page } from "playwright";
 import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
-import {
-  checkByValue,
-  fillText,
-  selectValue,
-  setFile,
-} from "../utils/field-filler";
+import { setFile } from "../utils/field-filler";
 import {
   ACME_STEP_TRANSITION_RETRY_PROFILE,
   ACME_SUBMIT_RETRY_PROFILE,
@@ -24,7 +19,11 @@ import {
 import { runSection, type SectionController } from "./sections";
 import {
   fillOptionalFieldWithLogs,
+  humanCheckByValue,
+  humanCheckSelector,
   humanClickWithOptionalPause,
+  humanFillValue,
+  humanSelectValue,
   withOptionalRetry,
   waitVisibleWithRetry,
 } from "./shared";
@@ -93,12 +92,14 @@ export const acmeHandler: ATSHandler = {
       context,
       controller: acmeSectionController,
       fill: async () => {
+        // Step 1: core personal/contact identity fields.
         await context.human.typeText(page, "#first-name", profile.firstName);
         await context.human.typeText(page, "#last-name", profile.lastName);
         await context.human.typeText(page, "#email", profile.email);
         await context.human.typeText(page, "#phone", profile.phone);
         await context.human.typeText(page, "#location", profile.location);
 
+        // Step 1: optional social/profile links.
         await fillOptionalFieldWithLogs({
           page,
           selector: "#linkedin",
@@ -106,7 +107,7 @@ export const acmeHandler: ATSHandler = {
           scope: "Acme",
           presentLog: "LinkedIn profile provided, filling optional field.",
           skipLog: "LinkedIn profile not provided, skipping optional field.",
-          logStep: context.logStep,
+          context,
         });
 
         await fillOptionalFieldWithLogs({
@@ -116,7 +117,7 @@ export const acmeHandler: ATSHandler = {
           scope: "Acme",
           presentLog: "Portfolio/GitHub provided, filling optional field.",
           skipLog: "Portfolio/GitHub not provided, skipping optional field.",
-          logStep: context.logStep,
+          context,
         });
       },
     });
@@ -137,16 +138,26 @@ export const acmeHandler: ATSHandler = {
       context,
       controller: acmeSectionController,
       fill: async () => {
+        // Step 2: document upload + qualification dropdowns.
         await setFile(page, "#resume", context.resumePath);
-        await selectValue(
+        await humanSelectValue({
           page,
-          "#experience-level",
-          mapExperienceLevel("acme", profile.experienceLevel)
-        );
-        await selectValue(page, "#education", mapEducation("acme", profile.education));
+          selector: "#experience-level",
+          value: mapExperienceLevel("acme", profile.experienceLevel),
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
+        await humanSelectValue({
+          page,
+          selector: "#education",
+          value: mapEducation("acme", profile.education),
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         context.logStep("Acme", "Selecting school using typeahead.");
-        await context.human.typeText(page, "#school", profile.school);
+        const schoolQuery = profile.school.slice(0, 8);
+        await context.human.typeText(page, "#school", schoolQuery);
         await waitVisibleWithRetry({
           page,
           selector: "#school-dropdown li",
@@ -161,13 +172,18 @@ export const acmeHandler: ATSHandler = {
 
         await withOptionalRetry({
           operation: async () => {
-            const schoolOption = page.locator("#school-dropdown li", {
-              hasText: profile.school,
-            });
-            if ((await schoolOption.count()) === 0) {
-              throw new Error(`No school suggestion matched "${profile.school}"`);
+            const schoolOptions = page.locator("#school-dropdown li");
+            const optionCount = await schoolOptions.count();
+            if (optionCount === 0) {
+              throw new Error("No school suggestions were available to select");
             }
-            await schoolOption.first().click();
+
+            await humanClickWithOptionalPause(
+              page,
+              "#school-dropdown li:first-child",
+              context,
+              ACTION_PAUSE
+            );
           },
           context,
           retryProfile: ACME_TYPEAHEAD_RETRY_PROFILE,
@@ -176,6 +192,7 @@ export const acmeHandler: ATSHandler = {
         });
         await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
+        // Step 2: skill checkbox selection from mapped profile skills.
         let selectedAcmeSkills = 0;
         for (const skill of profile.skills) {
           const mappedSkill = mapSkill("acme", skill);
@@ -188,7 +205,12 @@ export const acmeHandler: ATSHandler = {
             `input[name="skills"][value="${mappedSkill}"]`
           );
           if ((await skillCheckbox.count()) > 0) {
-            await skillCheckbox.check();
+            await humanCheckSelector({
+              page,
+              selector: `input[name="skills"][value="${mappedSkill}"]`,
+              context,
+              pauseRange: ACTION_PAUSE,
+            });
             selectedAcmeSkills += 1;
           } else {
             context.logStep("Acme", `Skill "${skill}" not available on form, skipping.`);
@@ -214,7 +236,14 @@ export const acmeHandler: ATSHandler = {
       context,
       controller: acmeSectionController,
       fill: async () => {
-        await checkByValue(page, "workAuth", profile.workAuthorized ? "yes" : "no");
+        // Step 3: work authorization radio questions.
+        await humanCheckByValue({
+          page,
+          name: "workAuth",
+          value: profile.workAuthorized ? "yes" : "no",
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         if (profile.workAuthorized) {
           context.logStep(
@@ -232,11 +261,13 @@ export const acmeHandler: ATSHandler = {
             logStep: context.logStep,
             enableRetries: context.options.features.enableRetries,
           });
-          await checkByValue(
+          await humanCheckByValue({
             page,
-            "visaSponsorship",
-            profile.requiresVisa ? "yes" : "no"
-          );
+            name: "visaSponsorship",
+            value: profile.requiresVisa ? "yes" : "no",
+            context,
+            pauseRange: ACTION_PAUSE,
+          });
         } else {
           context.logStep(
             "Acme",
@@ -244,11 +275,22 @@ export const acmeHandler: ATSHandler = {
           );
         }
 
-        await fillText(page, "#start-date", profile.earliestStartDate);
+        // Step 3: availability + compensation fields.
+        await humanFillValue({
+          page,
+          selector: "#start-date",
+          value: profile.earliestStartDate,
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         if (profile.salaryExpectation) {
           context.logStep("Acme", "Salary expectation provided, filling field.");
-          await fillText(page, "#salary-expectation", profile.salaryExpectation);
+          await context.human.typeText(
+            page,
+            "#salary-expectation",
+            profile.salaryExpectation
+          );
         } else {
           context.logStep(
             "Acme",
@@ -256,8 +298,15 @@ export const acmeHandler: ATSHandler = {
           );
         }
 
+        // Step 3: referral source and conditional "other" details.
         const mappedReferralSource = mapReferralSource("acme", profile.referralSource);
-        await selectValue(page, "#referral", mappedReferralSource);
+        await humanSelectValue({
+          page,
+          selector: "#referral",
+          value: mappedReferralSource,
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
         if (mappedReferralSource === "other") {
           context.logStep(
             "Acme",
@@ -285,6 +334,7 @@ export const acmeHandler: ATSHandler = {
           "Acme",
           "Skipping optional demographics section because profile has no demographic data."
         );
+        // Step 3: final free-text motivation/cover letter field.
         await context.human.typeText(page, "#cover-letter", profile.coverLetter);
       },
     });
@@ -303,7 +353,13 @@ export const acmeHandler: ATSHandler = {
       context,
       controller: acmeSectionController,
       fill: async () => {
-        await page.check("#terms-agree");
+        // Step 4: required consent checkbox before submit.
+        await humanCheckSelector({
+          page,
+          selector: "#terms-agree",
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
         context.logStep("Acme", "Waiting for success confirmation.");
         await withOptionalRetry({
           operation: async () => {

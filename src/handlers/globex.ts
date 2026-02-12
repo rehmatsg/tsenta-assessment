@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
 import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
-import { fillText, selectValue, setFile, setToggleState } from "../utils/field-filler";
+import { setFile } from "../utils/field-filler";
 import {
   ACTION_PAUSE,
   GLOBEX_SECTION_OPEN_RETRY_PROFILE,
@@ -19,7 +19,11 @@ import {
 import { runSection, type SectionController } from "./sections";
 import {
   fillOptionalFieldWithLogs,
+  humanCheckSelector,
   humanClickWithOptionalPause,
+  humanFillValue,
+  humanSelectValue,
+  humanToggleState,
   withOptionalRetry,
   waitVisibleWithRetry,
 } from "./shared";
@@ -104,6 +108,7 @@ async function fillGlobexSchool(
   context.logStep("Globex", "Searching school with async typeahead.");
   await withOptionalRetry({
     operation: async () => {
+      // Use a short query prefix so async results appear quickly, then select from results.
       const query = schoolName.slice(0, 8);
       await context.human.typeText(page, "#g-school", query);
       await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
@@ -123,10 +128,32 @@ async function fillGlobexSchool(
       const exactMatch = page.locator("#g-school-results li", { hasText: schoolName });
       if ((await exactMatch.count()) > 0) {
         context.logStep("Globex", "Exact school match found in results.");
-        await exactMatch.first().click();
+        const options = page.locator("#g-school-results li");
+        const optionCount = await options.count();
+        let matchingOptionSelector: string | null = null;
+
+        for (let index = 0; index < optionCount; index += 1) {
+          const optionText = (await options.nth(index).innerText()).trim();
+          if (optionText.toLowerCase().includes(schoolName.toLowerCase())) {
+            matchingOptionSelector = `#g-school-results li:nth-child(${index + 1})`;
+            break;
+          }
+        }
+
+        if (!matchingOptionSelector) {
+          throw new Error("Exact school match appeared but could not resolve selector");
+        }
+
+        await humanClickWithOptionalPause(
+          page,
+          matchingOptionSelector,
+          context,
+          ACTION_PAUSE
+        );
         return;
       }
 
+      // Fallback: choose first selectable result when exact text is unavailable.
       context.logStep(
         "Globex",
         "Exact school match not found, selecting first available result."
@@ -138,8 +165,12 @@ async function fillGlobexSchool(
         throw new Error("No selectable school options found in Globex dropdown");
       }
 
-      await fallbackOption.first().click();
-      await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
+      await humanClickWithOptionalPause(
+        page,
+        "#g-school-results li:not(.typeahead-no-results)",
+        context,
+        ACTION_PAUSE
+      );
     },
     context,
     retryProfile: GLOBEX_TYPEAHEAD_RETRY_PROFILE,
@@ -172,12 +203,14 @@ export const globexHandler: ATSHandler = {
       context,
       controller: globexSectionController,
       fill: async () => {
+        // Contact section: required identity/contact fields.
         await context.human.typeText(page, "#g-fname", profile.firstName);
         await context.human.typeText(page, "#g-lname", profile.lastName);
         await context.human.typeText(page, "#g-email", profile.email);
         await context.human.typeText(page, "#g-phone", profile.phone);
         await context.human.typeText(page, "#g-city", normalizeCity(profile.location));
 
+        // Contact section: optional profile links.
         await fillOptionalFieldWithLogs({
           page,
           selector: "#g-linkedin",
@@ -185,7 +218,7 @@ export const globexHandler: ATSHandler = {
           scope: "Globex",
           presentLog: "LinkedIn profile provided, filling optional field.",
           skipLog: "LinkedIn profile not provided, skipping optional field.",
-          logStep: context.logStep,
+          context,
         });
 
         await fillOptionalFieldWithLogs({
@@ -195,7 +228,7 @@ export const globexHandler: ATSHandler = {
           scope: "Globex",
           presentLog: "Portfolio/GitHub provided, filling optional field.",
           skipLog: "Portfolio/GitHub not provided, skipping optional field.",
-          logStep: context.logStep,
+          context,
         });
       },
     });
@@ -208,15 +241,25 @@ export const globexHandler: ATSHandler = {
       context,
       controller: globexSectionController,
       fill: async () => {
+        // Qualifications section: resume + experience/education + school.
         await setFile(page, "#g-resume", context.resumePath);
-        await selectValue(
+        await humanSelectValue({
           page,
-          "#g-experience",
-          mapExperienceLevel("globex", profile.experienceLevel)
-        );
-        await selectValue(page, "#g-degree", mapEducation("globex", profile.education));
+          selector: "#g-experience",
+          value: mapExperienceLevel("globex", profile.experienceLevel),
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
+        await humanSelectValue({
+          page,
+          selector: "#g-degree",
+          value: mapEducation("globex", profile.education),
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
         await fillGlobexSchool(page, profile.school, context);
 
+        // Qualifications section: selectable skill chips from mapped profile skills.
         await context.human.scrollIntoView(page, "#g-skills");
         let selectedGlobexSkills = 0;
         for (const skill of profile.skills) {
@@ -261,10 +304,14 @@ export const globexHandler: ATSHandler = {
       context,
       controller: globexSectionController,
       fill: async () => {
-        await context.human.scrollIntoView(page, "#g-work-auth-toggle");
-        await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
-        await setToggleState(page, "#g-work-auth-toggle", profile.workAuthorized);
-        await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
+        // Additional section: work authorization toggle and dependent visa toggle.
+        await humanToggleState({
+          page,
+          selector: "#g-work-auth-toggle",
+          shouldBeActive: profile.workAuthorized,
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         if (profile.workAuthorized) {
           context.logStep("Globex", "Work authorization is true, evaluating visa toggle.");
@@ -279,10 +326,13 @@ export const globexHandler: ATSHandler = {
             logStep: context.logStep,
             enableRetries: context.options.features.enableRetries,
           });
-          await context.human.scrollIntoView(page, "#g-visa-toggle");
-          await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
-          await setToggleState(page, "#g-visa-toggle", profile.requiresVisa);
-          await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
+          await humanToggleState({
+            page,
+            selector: "#g-visa-toggle",
+            shouldBeActive: profile.requiresVisa,
+            context,
+            pauseRange: ACTION_PAUSE,
+          });
         } else {
           context.logStep(
             "Globex",
@@ -290,20 +340,36 @@ export const globexHandler: ATSHandler = {
           );
         }
 
-        await fillText(page, "#g-start-date", profile.earliestStartDate);
+        // Additional section: start date (date input), salary slider, referral source, motivation.
+        await humanFillValue({
+          page,
+          selector: "#g-start-date",
+          value: profile.earliestStartDate,
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         const salaryValue = normalizeSalary(profile.salaryExpectation);
         context.logStep("Globex", `Normalized salary for slider set to ${salaryValue}.`);
+        await context.human.scrollIntoView(page, "#g-salary");
+        await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
         await page.locator("#g-salary").evaluate((el, value) => {
           const salaryInput = el as HTMLInputElement;
           salaryInput.value = value;
           salaryInput.dispatchEvent(new Event("input", { bubbles: true }));
           salaryInput.dispatchEvent(new Event("change", { bubbles: true }));
         }, salaryValue);
+        await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
         const sourceValue = mapReferralSource("globex", profile.referralSource);
         context.logStep("Globex", `Referral source mapped to "${sourceValue}".`);
-        await selectValue(page, "#g-source", sourceValue);
+        await humanSelectValue({
+          page,
+          selector: "#g-source",
+          value: sourceValue,
+          context,
+          pauseRange: ACTION_PAUSE,
+        });
 
         if (sourceValue === "other") {
           context.logStep("Globex", "Referral mapped to other, filling source details.");
@@ -327,7 +393,13 @@ export const globexHandler: ATSHandler = {
   },
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Globex", "Checking consent and submitting application.");
-    await page.check("#g-consent");
+    // Submit step: required consent checkbox before final submit.
+    await humanCheckSelector({
+      page,
+      selector: "#g-consent",
+      context,
+      pauseRange: ACTION_PAUSE,
+    });
     context.logStep("Globex", "Waiting for confirmation section.");
     await context.measureStep("Globex", "submit", async () => {
       await withOptionalRetry({
