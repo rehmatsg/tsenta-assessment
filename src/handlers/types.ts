@@ -14,7 +14,7 @@ export interface ATSRuntimeOptions {
   features: {
     enableRetries: boolean;
     captureFailureScreenshots: boolean;
-    captureTrace: boolean;
+    captureVideo: boolean;
   };
   timeouts: {
     stepTransitionMs: number;
@@ -25,7 +25,7 @@ export interface ATSRuntimeOptions {
   };
   artifacts: {
     failureScreenshotDir: string;
-    traceDir: string;
+    videoDir: string;
   };
 }
 

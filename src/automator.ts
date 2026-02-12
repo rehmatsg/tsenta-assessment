@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import process from "node:process";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, type BrowserContext, type Page, type Video } from "playwright";
 import { acmeHandler } from "./handlers/acme";
 import { globexHandler } from "./handlers/globex";
 import { sampleProfile } from "./profile";
@@ -42,13 +42,13 @@ import type { ApplicationResult, UserProfile } from "./types";
 const BASE_URL = "http://localhost:3939";
 const resumePath = "fixtures/sample-resume.pdf";
 const failureArtifactsDir = "artifacts/failures";
-const traceArtifactsDir = "artifacts/traces";
+const videoArtifactsDir = "artifacts/videos";
 const runHeadless = resolveRunHeadless(); // Defaults to headless; use --headful to override.
 const defaultRuntimeOptions: ATSRuntimeOptions = {
   features: {
     enableRetries: true,
     captureFailureScreenshots: true,
-    captureTrace: true,
+    captureVideo: true,
   },
   timeouts: {
     stepTransitionMs: 3000,
@@ -59,7 +59,7 @@ const defaultRuntimeOptions: ATSRuntimeOptions = {
   },
   artifacts: {
     failureScreenshotDir: failureArtifactsDir,
-    traceDir: traceArtifactsDir,
+    videoDir: videoArtifactsDir,
   },
 };
 
@@ -120,11 +120,6 @@ function buildFailureScreenshotPath(scope: string, artifactsDir: string): string
   return `${artifactsDir}/${scopeSlug}-${Date.now()}.png`;
 }
 
-function buildTracePath(scope: string, artifactsDir: string): string {
-  const scopeSlug = toScopeSlug(scope);
-  return `${artifactsDir}/${scopeSlug}-${Date.now()}.zip`;
-}
-
 function readHumanSeed(): string | undefined {
   const seed = process.env.HUMAN_SEED;
   return seed && seed.trim() ? seed.trim() : undefined;
@@ -170,7 +165,7 @@ async function applyToJob(
   const measureStep = createStepTimer();
   let browserContext: BrowserContext | null = null;
   let page: Page | null = null;
-  let traceStarted = false;
+  let pageVideo: Video | null = null;
 
   logStep(scope, `Launching browser in ${runHeadless ? "headless" : "headed"} mode.`);
   logStep(
@@ -182,24 +177,22 @@ async function applyToJob(
   const browser = await chromium.launch({ headless: runHeadless });
 
   try {
-    browserContext = await browser.newContext();
-    if (runtimeOptions.features.captureTrace) {
-      try {
-        await mkdir(runtimeOptions.artifacts.traceDir, { recursive: true });
-        await browserContext.tracing.start({
-          screenshots: true,
-          snapshots: true,
-          sources: true,
-        });
-        traceStarted = true;
-      } catch (traceError) {
-        const traceErrorMessage =
-          traceError instanceof Error ? traceError.message : String(traceError);
-        logger.warn(scope, `Failed to start trace recording: ${traceErrorMessage}`);
-      }
+    if (runtimeOptions.features.captureVideo) {
+      await mkdir(runtimeOptions.artifacts.videoDir, { recursive: true });
     }
+    browserContext = await browser.newContext(
+      runtimeOptions.features.captureVideo
+        ? {
+            recordVideo: {
+              dir: runtimeOptions.artifacts.videoDir,
+              size: { width: 1280, height: 720 },
+            },
+          }
+        : undefined
+    );
 
     page = await browserContext.newPage();
+    pageVideo = page.video();
     logStep(scope, `Navigating to ${url}.`);
     await page.goto(url, { waitUntil: "domcontentloaded" });
 
@@ -258,18 +251,18 @@ async function applyToJob(
       durationMs: Date.now() - startTime,
     };
   } finally {
-    if (browserContext && traceStarted) {
-      try {
-        await mkdir(runtimeOptions.artifacts.traceDir, { recursive: true });
-        const tracePath = buildTracePath(scope, runtimeOptions.artifacts.traceDir);
-        await browserContext.tracing.stop({ path: tracePath });
-        logger.info(scope, `Saved trace: ${tracePath}`);
-      } catch (traceStopError) {
-        const traceStopMessage =
-          traceStopError instanceof Error
-            ? traceStopError.message
-            : String(traceStopError);
-        logger.warn(scope, `Failed to save trace: ${traceStopMessage}`);
+    if (browserContext) {
+      await browserContext.close();
+
+      if (runtimeOptions.features.captureVideo && pageVideo) {
+        try {
+          const videoPath = await pageVideo.path();
+          logger.info(scope, `Saved video recording: ${videoPath}`);
+        } catch (videoError) {
+          const videoErrorMessage =
+            videoError instanceof Error ? videoError.message : String(videoError);
+          logger.warn(scope, `Failed to save video recording: ${videoErrorMessage}`);
+        }
       }
     }
 

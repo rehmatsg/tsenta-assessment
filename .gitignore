@@ -6,3 +6,4 @@ playwright-report/
 *.log
 artifacts/failures/*.png
 artifacts/traces/*.zip
+artifacts/videos/

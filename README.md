@@ -1,196 +1,279 @@
-# Tsenta - Software Engineering Intern Take-Home Assessment
+# Tsenta ATS Automation Submission
 
-**Time estimate**: 2-4 hours
-**Stack**: TypeScript, Playwright
+> The original assessment prompt has been moved to `TASK.md`. This `README.md` documents the implemented solution.
 
----
+## Overview
 
-## Context
+This project implements a Playwright + TypeScript automation system that submits job applications to both mock ATS platforms:
 
-At Tsenta, we automate job applications across dozens of ATS (Applicant Tracking System) platforms, Greenhouse, Lever, Workday, and more. Each platform has different HTML structures, form patterns, and interaction models, but the *data* being entered is the same: name, email, resume, skills, etc.
+- Acme (`/acme.html`): multi-step wizard
+- Globex (`/globex.html`): accordion-based single page
 
-This assessment gives you **two mock job application forms** with different layouts and interaction patterns. Your job is to build a Playwright automation system that fills out both forms using the same candidate profile, with a clean architecture that could scale to support additional platforms.
+The same profile (`src/profile.ts`) is reused across both flows, while platform-specific logic is isolated behind handlers.
 
----
-
-## Before You Start
-
-### Use whatever tools you want
-
-This is **not** a "write everything by hand" test. You're welcome to use any AI-assisted tools — Claude Code, Cursor, GitHub Copilot, Codex, or anything else. You can also use browser automation tooling like the [Playwright MCP server](https://github.com/microsoft/playwright-mcp), agent-browser, or similar.
-
-We care about the output, not whether you typed every character yourself. Just **document which tools you used** in your write-up — we're genuinely curious about your workflow.
-
-### Parts of this are intentionally vague
-
-We've left some things underspecified on purpose. When something isn't spelled out, make a decision, implement it, and briefly explain your reasoning. There's no single right answer — we want to see how you think through ambiguity.
-
-### Filling in form fields
-
-The `UserProfile` in `src/profile.ts` is your source of truth for what data to enter. But the profile won't map 1:1 to every form field — dropdown values might differ between platforms, some fields won't have an exact match in the profile, and some form fields are optional.
-
-When there's no exact match, **map the profile data intelligently to the closest option**. For example, if the profile says `education: "bachelors"` but the dropdown has `"Bachelor's Degree"` or `"bs"`, pick the right one. For fields that have no corresponding profile data at all (like optional demographic questions), use a sensible default or skip them — the point is that every *required* interaction works correctly, not that values are hardcoded.
-
----
-
-## A) Setup
-
-### Prerequisites
-
-- Node.js 18+
-- npm (or bun/pnpm)
-
-### Installation
+## Quick Start
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Install Playwright browsers
 npx playwright install chromium
-
-# 3. Verify the mock forms work
 npm run serve
-# Visit http://localhost:3939 — you'll see links to both forms
-```
-
-### Project Structure
-
-```
-assessment-1/
-├── README.md                    # You're here
-├── package.json
-├── tsconfig.json
-├── mock-ats/                    # Two mock job application forms (DO NOT MODIFY)
-│   ├── index.html               # Landing page with links to both forms
-│   ├── acme.html                # Acme Corp — multi-step form
-│   ├── globex.html              # Globex Corp — single-page accordion form
-│   └── styles.css               # Styles for Acme
-├── fixtures/
-│   └── sample-resume.pdf        # Dummy resume for file upload
-└── src/
-    ├── types.ts                 # Type definitions (UserProfile, ApplicationResult)
-    ├── profile.ts               # Sample candidate profile data
-    └── automator.ts             # ⬅ YOUR MAIN WORK GOES HERE
-```
-
----
-
-## The Two Forms
-
-Open each form in your browser to explore them before writing any code.
-
-### Acme Corp (`/acme.html`) — Multi-Step Form
-- **4 step wizard** with progress bar and Next/Back navigation
-- Step validation — must fill required fields before proceeding
-- **Typeahead** school field (type to search, click a suggestion)
-- Standard **checkboxes** for skills
-- **Radio buttons** for yes/no questions
-- **Conditional fields** (visa sponsorship appears based on work auth answer)
-- File upload with drag-and-drop area
-- Review page before final submit, then a success page with confirmation ID
-
-### Globex Corporation (`/globex.html`) — Single-Page Accordion Form
-- **Accordion sections** (click headers to expand/collapse) — all on one page
-- **Toggle switches** instead of radio buttons for yes/no
-- **Chip selectors** instead of checkboxes for skills (click chips to toggle)
-- **Salary slider** (`<input type="range">`) instead of text input
-- **Async typeahead** for school — results are fetched from a simulated API with network delay, and arrive in **shuffled order** each time (options are NOT in the DOM)
-- Inline validation — all sections open on submit if there are errors
-- Confirmation with reference number after submit
-
-Same data, very different UI patterns. This is the real challenge of ATS automation.
-
----
-
-## B) What You Need to Build
-
-### Part 1: Working Automation (~1.5-2 hours)
-
-Implement `src/automator.ts` so that running `npm start` successfully submits applications to **both** forms. Your automation must:
-
-1. Launch a browser and navigate to each form
-2. Fill all required fields using the `UserProfile` from `src/profile.ts`
-3. Handle platform-specific interactions:
-   - Acme: typeahead, step navigation, conditional fields, checkboxes, radio buttons
-   - Globex: accordion expansion, toggle switches, chip selection, salary slider, async typeahead
-4. Submit each form and capture the confirmation ID / reference number
-5. Return an `ApplicationResult` for each
-
-**Run your automation:**
-```bash
-# Start the mock form server (in one terminal)
-npm run serve
-
-# Run your automator (in another terminal)
 npm start
 ```
 
-### Part 2: Architecture (~30 min - 1 hour)
+Run integration tests:
 
-This is where system design shows up *in your code*, not in a doc. Your code structure should answer:
+```bash
+npm run test:e2e
+```
 
-- **How do you detect which platform you're on?** (URL matching, page content, etc.)
-- **How do you swap between platform-specific implementations?** (Strategy pattern, registry, etc.)
-- **What logic is shared vs. platform-specific?** (e.g., "fill a text input" is universal; "click a chip to select a skill" is Globex-specific)
-- **How would someone add a third ATS** without touching existing platform code?
+## Implementation Summary
 
-You're free to create whatever files/folders make sense. We're evaluating the design through the code itself.
+Running `npm start`:
 
-### Part 3: Human-Like Behavior (~20-30 min)
+1. Opens each target form.
+2. Detects the platform (URL + DOM fallback).
+3. Fills required fields and selected optional fields from `UserProfile`.
+4. Handles platform-specific interactions (wizard steps, accordions, typeaheads, toggles, chips, slider).
+5. Submits each application and captures confirmation/reference IDs.
+6. Prints a structured run summary with per-target duration.
 
-Real ATS platforms have bot detection. Add at least **two** of these to your automation:
+## Project Structure
 
-- Randomized delays between actions (not fixed `waitForTimeout`)
-- Variable-speed typing (faster for common words, slower for numbers/special chars)
-- Hover before clicking
-- Simulated reading pauses
-- Smooth scrolling
+- `src/automator.ts`
+  - Browser lifecycle, handler detection, run orchestration, summary output, failure artifacts.
+- `src/handlers/types.ts`
+  - Shared contracts (`ATSHandler`, `ATSHandlerContext`, runtime options).
+- `src/handlers/acme.ts`
+  - Acme-specific wizard flow.
+- `src/handlers/globex.ts`
+  - Globex-specific accordion flow.
+- `src/handlers/sections.ts`
+  - Shared section/step execution abstraction.
+- `src/handlers/shared.ts`
+  - Shared retry/wait/optional-field/click helpers.
+- `src/mappings/registry.ts`
+  - Centralized field mapping registry per platform.
+- `src/utils/field-filler.ts`
+  - Basic form interaction helpers.
+- `src/utils/human-like.ts`
+  - Human-like interaction engine (typing, pauses, hover, smooth scroll).
+- `src/utils/retry.ts`, `src/utils/retry-profiles.ts`
+  - Retry utility and retry profiles.
+- `src/utils/logger.ts`
+  - Centralized structured logging.
 
----
+## Detailed Code Explanation
 
-## C) What to Submit
+### Orchestrator (`src/automator.ts`)
 
-Submit your completed project as a **GitHub repo**. Include:
+Responsibilities are intentionally limited to orchestration concerns:
 
-1. **All source code** — we should be able to run `npm install && npm start` and see both forms filled successfully
-2. **A short write-up** (add to this README or create `DESIGN.md`) covering:
-   - How you structured the code and why
-   - What trade-offs you made given the time constraint
-   - What was the hardest part
-   - What AI tools / assistants you used and how
-3. **Submit your repo link here**: https://forms.gle/ACPi3ajwL8x3VfTE9
+- runtime configuration (timeouts, retry/screenshot/video flags, artifact paths)
+- browser/context/page lifecycle
+- handler detection and invocation
+- error handling and `ApplicationResult` shaping
+- failure screenshot capture and video saving
+- per-run summary output
 
----
+Step-level instrumentation is provided through `measureStep(...)` and injected into handler context.
 
-## D) Evaluation Criteria
+### Acme Handler (`src/handlers/acme.ts`)
 
-| Criteria | Weight | What We're Looking For |
-|---|---|---|
-| **Automation Quality** | 35% | Does it work? Does it handle both forms, all field types, and edge cases? |
-| **Code Design** | 40% | Is it well-structured? Could a new ATS be added cleanly? Are abstractions earned, not forced? |
-| **Human-Like Behavior** | 25% | Are interactions realistic? Variable delays, natural typing? |
+Acme is modeled as a 4-step wizard:
 
-### Bonus Points
+- Step 1: personal details + optional links
+- Step 2: resume upload, experience/education, school typeahead, skills
+- Step 3: work authorization, conditional visa field, salary, referral, cover letter
+- Step 4: terms agreement + submit + confirmation extraction
 
-Not at all required, but we'd love seeing any of these:
+Acme-specific interactions implemented:
 
-- Screenshots at each step for debugging
-- Retry logic for flaky interactions
-- Structured logging (timestamps, step names, field names)
-- Video/trace recording of the automation run
-- Performance tracking (time per step, per form)
-- A third mock form or creative extensions
-- Tests that verify automation correctness
+- school typeahead requires dropdown selection after typing
+- visa conditional block handling
+- referral `other` conditional field handling
+- optional demographics explicitly skipped (no profile data)
 
----
+### Globex Handler (`src/handlers/globex.ts`)
 
-## Tips
+Globex is modeled as 3 accordion sections plus submit:
 
-- **Read the HTML first.** Open `mock-ats/acme.html` and `mock-ats/globex.html` in your editor. Understand the selectors, validation logic, and conditional behavior. This is exactly how we work with real ATS platforms.
-- **Start with one form.** Get Acme working end-to-end, then add Globex. The refactoring to support both is where your design skills show.
-- **Don't over-engineer.** We'd rather see clean, working code with natural patterns than an elaborate framework that doesn't run.
-- The `fixtures/sample-resume.pdf` file is provided for file upload steps.
-- Playwright docs: https://playwright.dev/docs/intro
+- contact
+- qualifications
+- additional
 
-Good luck, excited to see what you build!
+Globex-specific interactions implemented:
+
+- section open-state enforcement before filling
+- toggle switch state handling
+- async shuffled typeahead (exact match first, fallback to first valid result)
+- skill chips (selection by `data-skill`)
+- salary slider update via `input` + `change` events
+- referral `other` conditional field handling
+
+### Mapping Registry (`src/mappings/registry.ts`)
+
+A centralized mapping layer resolves platform-specific option differences for:
+
+- experience level
+- education
+- referral source
+- skills
+
+This prevents ad hoc mapping duplication inside each handler and supports extension to additional platforms.
+
+### Reliability and Debugging
+
+Implemented reliability features include:
+
+- targeted retries for known flaky interactions
+- explicit visible-selector wait guards
+- failure screenshots under `artifacts/failures/`
+- Playwright video recording under `artifacts/videos/`
+- per-step and per-run duration tracking
+
+### Logging and Observability
+
+`src/utils/logger.ts` provides centralized logs with:
+
+- timestamp
+- scope (`Acme`, `Globex`, `Runner`)
+- level (`INFO`, `WARN`, `ERROR`, `SUCCESS`)
+- final summary (targets, success/failure count, durations, confirmations/errors)
+
+### Human-Like Behavior
+
+Implemented behaviors:
+
+- variable-speed typing (`pressSequentially` with per-character delay class)
+- hover before click
+- randomized pauses
+- smooth scrolling before interaction
+
+Why this is relevant:
+
+- these patterns reduce clearly synthetic interaction signatures (instant fills/clicks everywhere)
+- while not guaranteeing bot bypass, they improve realism and robustness on dynamic forms
+
+## Bonus Features Implemented
+
+The implementation includes several bonus-style capabilities from `TASK.md`:
+
+- structured logging with timestamps/scopes
+- targeted retry logic
+- video recording
+- performance tracking (per-step and per-run timing)
+- integration test coverage
+
+## Test Coverage
+
+Playwright integration tests are located in `tests/`:
+
+- `tests/automator.e2e.spec.ts`
+  - full happy-path submission for both ATS forms
+- `tests/edge-cases.e2e.spec.ts`
+  - Acme referral `other` path
+  - unknown-skill skip safety
+  - Globex school fallback when exact match is unavailable
+
+Run:
+
+```bash
+npm run test:e2e
+```
+
+## Sample Video Artifact
+
+- Sample recording from a real run: [`artifacts/examples/acme-run-sample.webm`](artifacts/examples/acme-run-sample.webm)
+- Runtime recordings are generated under `artifacts/videos/` and one sample file is copied into `artifacts/examples/`.
+
+## Example Run Logs
+
+The following is a real `npm start` run excerpt after switching from trace zips to video recording:
+
+```text
+--- Applying to Acme Corp ---
+[08:54:25] [Acme] INFO: Launching browser in headless mode.
+[08:54:25] [Acme] INFO: Human-like profile: low-overhead, seed mode: random.
+[08:54:26] [Acme] INFO: Navigating to http://localhost:3939/acme.html.
+[08:54:26] [Acme] INFO: Step 1: filling personal information fields.
+[08:54:26] [Acme] INFO: Start: step 1.
+[08:54:34] [Acme] INFO: LinkedIn profile provided, filling optional field.
+[08:54:34] [Acme] INFO: Portfolio/GitHub provided, filling optional field.
+[08:54:34] [Acme] INFO: Done: step 1 (7709ms).
+[08:54:34] [Acme] INFO: Step 1 complete, continuing to step 2.
+[08:54:34] [Acme] INFO: Step 2: uploading resume and selecting experience/education.
+[08:54:34] [Acme] INFO: Start: step 2.
+[08:54:34] [Acme] INFO: Selecting school using typeahead.
+[08:54:37] [Acme] INFO: Selected 4 matching skills.
+[08:54:37] [Acme] INFO: Done: step 2 (2401ms).
+[08:54:37] [Acme] INFO: Step 2 complete, continuing to step 3.
+[08:54:38] [Acme] INFO: Step 3: setting work authorization and additional questions.
+[08:54:38] [Acme] INFO: Start: step 3.
+[08:54:38] [Acme] INFO: Work authorization is yes, setting visa sponsorship response.
+[08:54:38] [Acme] INFO: Salary expectation provided, filling field.
+[08:54:38] [Acme] INFO: Skipping optional demographics section because profile has no demographic data.
+[08:55:29] [Acme] INFO: Done: step 3 (51149ms).
+[08:55:29] [Acme] INFO: Step 3 complete, continuing to review step.
+[08:55:29] [Acme] INFO: Step 4: agreeing to terms and submitting application.
+[08:55:29] [Acme] INFO: Start: step 4.
+[08:55:30] [Acme] INFO: Waiting for success confirmation.
+[08:55:32] [Acme] INFO: Done: step 4 (2896ms).
+[08:55:32] [Acme] INFO: Submission completed with confirmation ID ACM-MLJ849KC-TY9B.
+[08:55:32] [Acme] SUCCESS: Application flow finished successfully.
+[08:55:32] [Acme] INFO: Saved video recording: /Users/rehmatsinghgill/Desktop/Development/Web Projects/tsenta-assessment/artifacts/videos/1f5fbb71dce6e9ace4b8c56ca53fc368.webm
+[08:55:32] [Runner] SUCCESS: Acme Corp: application submitted.
+[08:55:32] [Runner] INFO: Acme Corp: confirmation ACM-MLJ849KC-TY9B
+[08:55:32] [Runner] INFO: Acme Corp: duration 66949ms
+
+--- Applying to Globex Corporation ---
+[08:55:32] [Globex] INFO: Launching browser in headless mode.
+[08:55:32] [Globex] INFO: Human-like profile: low-overhead, seed mode: random.
+[08:55:33] [Globex] INFO: Navigating to http://localhost:3939/globex.html.
+[08:55:33] [Globex] INFO: Section contact: filling personal/contact fields.
+[08:55:33] [Globex] INFO: Start: section contact.
+[08:55:39] [Globex] INFO: LinkedIn profile provided, filling optional field.
+[08:55:39] [Globex] INFO: Portfolio/GitHub provided, filling optional field.
+[08:55:39] [Globex] INFO: Done: section contact (6860ms).
+[08:55:39] [Globex] INFO: Section qualifications: uploading resume and selecting qualification data.
+[08:55:39] [Globex] INFO: Start: section qualifications.
+[08:55:40] [Globex] INFO: Searching school with async typeahead.
+[08:55:42] [Globex] INFO: Exact school match found in results.
+[08:55:45] [Globex] INFO: Selected 4 matching skills.
+[08:55:45] [Globex] INFO: Done: section qualifications (5180ms).
+[08:55:45] [Globex] INFO: Section additional: setting authorization, compensation, source, and motivation.
+[08:55:45] [Globex] INFO: Start: section additional.
+[08:55:46] [Globex] INFO: Work authorization is true, evaluating visa toggle.
+[08:55:46] [Globex] INFO: Normalized salary for slider set to 85000.
+[08:55:46] [Globex] INFO: Referral source mapped to "linkedin".
+[08:56:37] [Globex] INFO: Done: section additional (52440ms).
+[08:56:37] [Globex] INFO: Checking consent and submitting application.
+[08:56:37] [Globex] INFO: Waiting for confirmation section.
+[08:56:37] [Globex] INFO: Start: submit.
+[08:56:40] [Globex] INFO: Done: submit (3212ms).
+[08:56:40] [Globex] INFO: Submission completed with reference GX-MLJ85Q1W-BTS.
+[08:56:40] [Globex] SUCCESS: Application flow finished successfully.
+[08:56:40] [Globex] INFO: Saved video recording: /Users/rehmatsinghgill/Desktop/Development/Web Projects/tsenta-assessment/artifacts/videos/3e87ee0b454d93d6ffeb66b488f5aa68.webm
+[08:56:40] [Runner] SUCCESS: Globex Corporation: application submitted.
+[08:56:40] [Runner] INFO: Globex Corporation: confirmation GX-MLJ85Q1W-BTS
+[08:56:40] [Runner] INFO: Globex Corporation: duration 67941ms
+
+=== Run Summary ===
+Targets: 2
+Successes: 2
+Failures: 0
+Total Duration: 135046ms
+- Acme Corp: success (66949ms, confirmation=ACM-MLJ849KC-TY9B)
+- Globex Corporation: success (67941ms, confirmation=GX-MLJ85Q1W-BTS)
+```
+
+## AI Tools and Workflow
+
+Codex (GPT-5.3-Codex) was used to write some parts of this assessment, this readme file and all the tests.
+
+Workflow sequence:
+
+1. establish a working baseline on both forms
+2. refactor to handler architecture
+3. integrate human-like interaction behavior
+4. add reliability features (retries, screenshots, videos, timing)
+5. add end-to-end and edge-case integration tests
