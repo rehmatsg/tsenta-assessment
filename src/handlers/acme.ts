@@ -7,7 +7,27 @@ import {
   fillText,
   selectValue,
   setFile,
+  waitForRequiredSelector,
 } from "../utils/field-filler";
+import { withRetry } from "../utils/retry";
+
+const acmeStepTransitionRetry = {
+  attempts: 2,
+  initialDelayMs: 120,
+  backoffMultiplier: 1.4,
+} as const;
+
+const acmeTypeaheadRetry = {
+  attempts: 3,
+  initialDelayMs: 150,
+  backoffMultiplier: 1.5,
+} as const;
+
+const acmeSubmitRetry = {
+  attempts: 2,
+  initialDelayMs: 180,
+  backoffMultiplier: 1.6,
+} as const;
 
 async function clickStepContinue(
   page: Page,
@@ -17,6 +37,28 @@ async function clickStepContinue(
   const continueButtonSelector = `.form-step[data-step="${step}"] .btn-primary`;
   await context.human.scrollIntoView(page, continueButtonSelector);
   await context.human.hoverAndClick(page, continueButtonSelector);
+}
+
+async function waitForActiveStep(
+  page: Page,
+  step: number,
+  context: ATSHandlerContext
+): Promise<void> {
+  await withRetry(
+    () =>
+      waitForRequiredSelector(
+        page,
+        `.form-step[data-step="${step}"].active`,
+        3000,
+        `Acme step ${step} did not become active`
+      ),
+    {
+      ...acmeStepTransitionRetry,
+      scope: "Acme",
+      step: `wait for step ${step}`,
+    },
+    context.logStep
+  );
 }
 
 export const acmeHandler: ATSHandler = {
@@ -62,7 +104,7 @@ export const acmeHandler: ATSHandler = {
 
     context.logStep("Acme", "Step 1 complete, continuing to step 2.");
     await clickStepContinue(page, 1, context);
-    await page.waitForSelector('.form-step[data-step="2"].active');
+    await waitForActiveStep(page, 2, context);
     await context.human.pause(40, 120);
 
     context.logStep(
@@ -75,10 +117,29 @@ export const acmeHandler: ATSHandler = {
 
     context.logStep("Acme", "Selecting school using typeahead.");
     await context.human.typeText(page, "#school", profile.school);
-    const schoolOption = page.locator("#school-dropdown li", {
-      hasText: profile.school,
-    });
-    await schoolOption.first().click();
+    await withRetry(
+      async () => {
+        await waitForRequiredSelector(
+          page,
+          "#school-dropdown li",
+          3000,
+          "Acme school suggestions did not appear"
+        );
+        const schoolOption = page.locator("#school-dropdown li", {
+          hasText: profile.school,
+        });
+        if ((await schoolOption.count()) === 0) {
+          throw new Error(`No school suggestion matched "${profile.school}"`);
+        }
+        await schoolOption.first().click();
+      },
+      {
+        ...acmeTypeaheadRetry,
+        scope: "Acme",
+        step: "select school suggestion",
+      },
+      context.logStep
+    );
     await context.human.pause(40, 120);
 
     let selectedAcmeSkills = 0;
@@ -97,7 +158,7 @@ export const acmeHandler: ATSHandler = {
 
     context.logStep("Acme", "Step 2 complete, continuing to step 3.");
     await clickStepContinue(page, 2, context);
-    await page.waitForSelector('.form-step[data-step="3"].active');
+    await waitForActiveStep(page, 3, context);
     await context.human.pause(40, 120);
 
     context.logStep(
@@ -141,18 +202,32 @@ export const acmeHandler: ATSHandler = {
 
     context.logStep("Acme", "Step 3 complete, continuing to review step.");
     await clickStepContinue(page, 3, context);
-    await page.waitForSelector('.form-step[data-step="4"].active');
+    await waitForActiveStep(page, 4, context);
     await context.human.pause(40, 120);
   },
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Acme", "Step 4: agreeing to terms and submitting application.");
     await page.check("#terms-agree");
-    await context.human.pause(120, 220);
-    await context.human.scrollIntoView(page, "#submit-btn");
-    await context.human.hoverAndClick(page, "#submit-btn");
-
     context.logStep("Acme", "Waiting for success confirmation.");
-    await page.waitForSelector("#success-page", { state: "visible" });
+    await withRetry(
+      async () => {
+        await context.human.pause(120, 220);
+        await context.human.scrollIntoView(page, "#submit-btn");
+        await context.human.hoverAndClick(page, "#submit-btn");
+        await waitForRequiredSelector(
+          page,
+          "#success-page",
+          6000,
+          "Acme success page did not appear after submit"
+        );
+      },
+      {
+        ...acmeSubmitRetry,
+        scope: "Acme",
+        step: "submit application and wait for success",
+      },
+      context.logStep
+    );
     const confirmation = (await page.locator("#confirmation-id").innerText()).trim();
     context.logStep(
       "Acme",

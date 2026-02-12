@@ -73,3 +73,17 @@ export async function setToggleState(
     await toggle.click();
   }
 }
+
+export async function waitForRequiredSelector(
+  page: Page,
+  selector: string,
+  timeoutMs: number,
+  errorMessage: string
+): Promise<void> {
+  try {
+    await page.waitForSelector(selector, { state: "visible", timeout: timeoutMs });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(`${errorMessage}. ${details}`);
+  }
+}

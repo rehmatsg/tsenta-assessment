@@ -7,7 +7,9 @@ import {
   selectValue,
   setFile,
   setToggleState,
+  waitForRequiredSelector,
 } from "../utils/field-filler";
+import { withRetry } from "../utils/retry";
 
 const experienceToGlobex: Record<UserProfile["experienceLevel"], string> = {
   "0-1": "intern",
@@ -48,6 +50,24 @@ const profileSkillToGlobex: Record<string, string> = {
   graphql: "graphql",
 };
 
+const globexTypeaheadRetry = {
+  attempts: 3,
+  initialDelayMs: 180,
+  backoffMultiplier: 1.6,
+} as const;
+
+const globexSectionOpenRetry = {
+  attempts: 2,
+  initialDelayMs: 100,
+  backoffMultiplier: 1.3,
+} as const;
+
+const globexSubmitRetry = {
+  attempts: 2,
+  initialDelayMs: 180,
+  backoffMultiplier: 1.6,
+} as const;
+
 function normalizeCity(location: string): string {
   const [city] = location.split(",");
   return city?.trim() || location.trim();
@@ -68,41 +88,75 @@ async function fillGlobexSchool(
   context: ATSHandlerContext
 ): Promise<void> {
   context.logStep("Globex", "Searching school with async typeahead.");
-  const query = schoolName.slice(0, 8);
-  await context.human.typeText(page, "#g-school", query);
-  await context.human.pause(40, 120);
+  await withRetry(
+    async () => {
+      const query = schoolName.slice(0, 8);
+      await context.human.typeText(page, "#g-school", query);
+      await context.human.pause(40, 120);
 
-  await page.waitForSelector("#g-school-results.open", { timeout: 6000 });
+      await waitForRequiredSelector(
+        page,
+        "#g-school-results.open",
+        6000,
+        "Globex school results dropdown did not open"
+      );
 
-  const exactMatch = page.locator("#g-school-results li", { hasText: schoolName });
-  if ((await exactMatch.count()) > 0) {
-    context.logStep("Globex", "Exact school match found in results.");
-    await exactMatch.first().click();
-    return;
-  }
+      const exactMatch = page.locator("#g-school-results li", { hasText: schoolName });
+      if ((await exactMatch.count()) > 0) {
+        context.logStep("Globex", "Exact school match found in results.");
+        await exactMatch.first().click();
+        return;
+      }
 
-  context.logStep(
-    "Globex",
-    "Exact school match not found, selecting first available result."
+      context.logStep(
+        "Globex",
+        "Exact school match not found, selecting first available result."
+      );
+      const fallbackOption = page.locator(
+        "#g-school-results li:not(.typeahead-no-results)"
+      );
+      if ((await fallbackOption.count()) === 0) {
+        throw new Error("No selectable school options found in Globex dropdown");
+      }
+      await fallbackOption.first().click();
+      await context.human.pause(40, 120);
+    },
+    {
+      ...globexTypeaheadRetry,
+      scope: "Globex",
+      step: "select school suggestion",
+    },
+    context.logStep
   );
-  const fallbackOption = page.locator(
-    "#g-school-results li:not(.typeahead-no-results)"
-  );
-  await fallbackOption.first().click();
-  await context.human.pause(40, 120);
 }
 
 async function ensureSectionOpenWithHuman(
   page: Page,
   sectionSelector: string,
   openClass: string,
+  sectionName: string,
   context: ATSHandlerContext
 ): Promise<void> {
-  const sectionHeader = page.locator(sectionSelector).first();
-  const className = (await sectionHeader.getAttribute("class")) ?? "";
-  if (!className.includes(openClass)) {
-    await context.human.hoverAndClick(page, sectionSelector);
-  }
+  await withRetry(
+    async () => {
+      const sectionHeader = page.locator(sectionSelector).first();
+      const className = (await sectionHeader.getAttribute("class")) ?? "";
+      if (!className.includes(openClass)) {
+        await context.human.hoverAndClick(page, sectionSelector);
+      }
+
+      const updatedClassName = (await sectionHeader.getAttribute("class")) ?? "";
+      if (!updatedClassName.includes(openClass)) {
+        throw new Error(`Globex section "${sectionName}" did not open`);
+      }
+    },
+    {
+      ...globexSectionOpenRetry,
+      scope: "Globex",
+      step: `open ${sectionName} section`,
+    },
+    context.logStep
+  );
 }
 
 export const globexHandler: ATSHandler = {
@@ -126,6 +180,7 @@ export const globexHandler: ATSHandler = {
       page,
       '.application-section[data-section="contact"] .section-header',
       "open",
+      "contact",
       context
     );
     await context.human.typeText(page, "#g-fname", profile.firstName);
@@ -159,6 +214,7 @@ export const globexHandler: ATSHandler = {
       page,
       '.application-section[data-section="qualifications"] .section-header',
       "open",
+      "qualifications",
       context
     );
     await setFile(page, "#g-resume", context.resumePath);
@@ -207,6 +263,7 @@ export const globexHandler: ATSHandler = {
       page,
       '.application-section[data-section="additional"] .section-header',
       "open",
+      "additional",
       context
     );
     await context.human.scrollIntoView(page, "#g-work-auth-toggle");
@@ -255,11 +312,26 @@ export const globexHandler: ATSHandler = {
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Globex", "Checking consent and submitting application.");
     await page.check("#g-consent");
-    await context.human.scrollIntoView(page, "#globex-submit");
-    await context.human.pause(120, 220);
-    await context.human.hoverAndClick(page, "#globex-submit");
     context.logStep("Globex", "Waiting for confirmation section.");
-    await page.waitForSelector("#globex-confirmation", { state: "visible" });
+    await withRetry(
+      async () => {
+        await context.human.scrollIntoView(page, "#globex-submit");
+        await context.human.pause(120, 220);
+        await context.human.hoverAndClick(page, "#globex-submit");
+        await waitForRequiredSelector(
+          page,
+          "#globex-confirmation",
+          7000,
+          "Globex confirmation section did not appear after submit"
+        );
+      },
+      {
+        ...globexSubmitRetry,
+        scope: "Globex",
+        step: "submit application and wait for confirmation",
+      },
+      context.logStep
+    );
 
     const reference = (await page.locator("#globex-ref").innerText()).trim();
     context.logStep("Globex", `Submission completed with reference ${reference}.`);
