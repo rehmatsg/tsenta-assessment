@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import type { HumanLikeEngine } from "../handlers/types";
 
 export const LOW_OVERHEAD_PROFILE_NAME = "low-overhead";
@@ -78,6 +78,19 @@ function resolveTypeDelay(character: string, random: () => number): number {
   );
 }
 
+async function smoothScrollIntoView(locator: Locator): Promise<void> {
+  await locator.evaluate((element) => {
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+  });
+
+  // Give the browser time to render the smooth animation.
+  await new Promise((resolve) => setTimeout(resolve, 180));
+}
+
 export function createHumanLikeEngine(seed?: string): HumanLikeEngine {
   const random = seed
     ? createXorshift32(hashStringToUint32(seed))
@@ -89,11 +102,11 @@ export function createHumanLikeEngine(seed?: string): HumanLikeEngine {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     },
     async scrollIntoView(page: Page, selector: string): Promise<void> {
-      await page.locator(selector).first().scrollIntoViewIfNeeded();
+      await smoothScrollIntoView(page.locator(selector).first());
     },
     async hoverAndClick(page: Page, selector: string): Promise<void> {
       const locator = page.locator(selector).first();
-      await locator.scrollIntoViewIfNeeded();
+      await smoothScrollIntoView(locator);
       await locator.hover();
       await new Promise((resolve) =>
         setTimeout(
@@ -109,7 +122,7 @@ export function createHumanLikeEngine(seed?: string): HumanLikeEngine {
     },
     async typeText(page: Page, selector: string, value: string): Promise<void> {
       const locator = page.locator(selector).first();
-      await locator.scrollIntoViewIfNeeded();
+      await smoothScrollIntoView(locator);
       await locator.fill("");
 
       if (!value) {
