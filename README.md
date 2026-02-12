@@ -1,5 +1,7 @@
 # Tsenta ATS Automation Submission
 
+https://github.com/user-attachments/assets/19ac9ae6-1aa1-41f0-a935-36be037ec1c6
+
 > The original assessment prompt has been moved to `TASK.md`. This `README.md` documents the implemented solution.
 
 ## Overview
