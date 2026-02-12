@@ -44,6 +44,7 @@ type WaitVisibleWithRetryArgs = {
   scope: string;
   step: string;
   logStep: LogStep;
+  enableRetries?: boolean;
 };
 
 export async function waitVisibleWithRetry(
@@ -58,7 +59,13 @@ export async function waitVisibleWithRetry(
     scope,
     step,
     logStep,
+    enableRetries,
   } = args;
+
+  if (enableRetries === false) {
+    await waitForRequiredSelector(page, selector, timeoutMs, errorMessage);
+    return;
+  }
 
   await withRetry(
     () => waitForRequiredSelector(page, selector, timeoutMs, errorMessage),

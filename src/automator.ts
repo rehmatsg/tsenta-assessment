@@ -6,7 +6,12 @@ import {
   LOW_OVERHEAD_PROFILE_NAME,
   createHumanLikeEngine,
 } from "./utils/human-like";
-import type { ATSHandler, ATSHandlerContext, PlatformId } from "./handlers/types";
+import type {
+  ATSHandler,
+  ATSHandlerContext,
+  ATSRuntimeOptions,
+  PlatformId,
+} from "./handlers/types";
 import type { ApplicationResult, UserProfile } from "./types";
 
 /**
@@ -34,7 +39,23 @@ import type { ApplicationResult, UserProfile } from "./types";
 const BASE_URL = "http://localhost:3939";
 const resumePath = "fixtures/sample-resume.pdf";
 const failureArtifactsDir = "artifacts/failures";
-const runHeadless = false; // Toggle to true when you want headless runs.
+const runHeadless = resolveRunHeadless(); // Defaults to headless; use --headful to override.
+const defaultRuntimeOptions: ATSRuntimeOptions = {
+  features: {
+    enableRetries: true,
+    captureFailureScreenshots: true,
+  },
+  timeouts: {
+    stepTransitionMs: 3000,
+    sectionOpenMs: 2000,
+    typeaheadMs: 3000,
+    conditionalRevealMs: 2000,
+    confirmationMs: 6000,
+  },
+  artifacts: {
+    failureScreenshotDir: failureArtifactsDir,
+  },
+};
 
 const handlers: ATSHandler[] = [acmeHandler, globexHandler];
 
@@ -67,9 +88,9 @@ function toScopeSlug(scope: string): string {
   return normalized || "automator";
 }
 
-function buildFailureScreenshotPath(scope: string): string {
+function buildFailureScreenshotPath(scope: string, artifactsDir: string): string {
   const scopeSlug = toScopeSlug(scope);
-  return `${failureArtifactsDir}/${scopeSlug}-${Date.now()}.png`;
+  return `${artifactsDir}/${scopeSlug}-${Date.now()}.png`;
 }
 
 function readHumanSeed(): string | undefined {
@@ -82,6 +103,32 @@ function readHumanSeed(): string | undefined {
   ).process;
   const seed = runtimeProcess?.env?.HUMAN_SEED;
   return seed && seed.trim() ? seed.trim() : undefined;
+}
+
+function resolveRunHeadless(): boolean {
+  const runtimeProcess = (
+    globalThis as {
+      process?: {
+        argv?: string[];
+        env?: Record<string, string | undefined>;
+      };
+    }
+  ).process;
+
+  const args = runtimeProcess?.argv ?? [];
+  const npmHeadfulFlag = runtimeProcess?.env?.npm_config_headful === "true";
+  const hasHeadfulFlag = args.includes("--headful") || npmHeadfulFlag;
+  const hasHeadlessFlag = args.includes("--headless");
+
+  if (hasHeadlessFlag) {
+    return true;
+  }
+
+  if (hasHeadfulFlag) {
+    return false;
+  }
+
+  return true;
 }
 
 async function detectHandler(url: string, page: Page): Promise<ATSHandler | null> {
@@ -103,6 +150,7 @@ async function applyToJob(
   const baseSeed = readHumanSeed();
   const scopedSeed = baseSeed ? `${baseSeed}:${url}` : undefined;
   const human = createHumanLikeEngine(scopedSeed);
+  const runtimeOptions = defaultRuntimeOptions;
   let page: Page | null = null;
 
   logStep(scope, `Launching browser in ${runHeadless ? "headless" : "headed"} mode.`);
@@ -130,6 +178,7 @@ async function applyToJob(
       resumePath,
       logStep,
       human,
+      options: runtimeOptions,
     };
 
     await handler.fillForm(page, profile, handlerContext);
@@ -144,8 +193,11 @@ async function applyToJob(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     let screenshotPath: string | undefined;
-    if (page) {
-      const candidatePath = buildFailureScreenshotPath(scope);
+    if (page && runtimeOptions.features.captureFailureScreenshots) {
+      const candidatePath = buildFailureScreenshotPath(
+        scope,
+        runtimeOptions.artifacts.failureScreenshotDir
+      );
       try {
         await page.screenshot({ path: candidatePath, fullPage: true });
         screenshotPath = candidatePath;

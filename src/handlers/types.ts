@@ -10,10 +10,28 @@ export interface HumanLikeEngine {
   scrollIntoView(page: Page, selector: string): Promise<void>;
 }
 
+export interface ATSRuntimeOptions {
+  features: {
+    enableRetries: boolean;
+    captureFailureScreenshots: boolean;
+  };
+  timeouts: {
+    stepTransitionMs: number;
+    sectionOpenMs: number;
+    typeaheadMs: number;
+    conditionalRevealMs: number;
+    confirmationMs: number;
+  };
+  artifacts: {
+    failureScreenshotDir: string;
+  };
+}
+
 export interface ATSHandlerContext {
   resumePath: string;
   logStep: (scope: string, message: string) => void;
   human: HumanLikeEngine;
+  options: ATSRuntimeOptions;
 }
 
 export interface ATSHandler {
