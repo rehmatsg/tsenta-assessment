@@ -6,6 +6,7 @@ import {
   LOW_OVERHEAD_PROFILE_NAME,
   createHumanLikeEngine,
 } from "./utils/human-like";
+import { createLogger, type RunSummaryItem } from "./utils/logger";
 import type {
   ATSHandler,
   ATSHandlerContext,
@@ -58,9 +59,10 @@ const defaultRuntimeOptions: ATSRuntimeOptions = {
 };
 
 const handlers: ATSHandler[] = [acmeHandler, globexHandler];
+const logger = createLogger();
 
 function logStep(scope: string, message: string): void {
-  console.log(`[${scope}] ${message}`);
+  logger.step(scope, message);
 }
 
 function platformToScope(platform: PlatformId): string {
@@ -184,7 +186,7 @@ async function applyToJob(
     await handler.fillForm(page, profile, handlerContext);
     const confirmationId = (await handler.submit(page, handlerContext)).trim();
 
-    logStep(scope, "Application flow finished successfully.");
+    logger.success(scope, "Application flow finished successfully.");
     return {
       success: true,
       confirmationId,
@@ -201,17 +203,17 @@ async function applyToJob(
       try {
         await page.screenshot({ path: candidatePath, fullPage: true });
         screenshotPath = candidatePath;
-        logStep(scope, `Captured failure screenshot: ${candidatePath}`);
+        logger.info(scope, `Captured failure screenshot: ${candidatePath}`);
       } catch (screenshotError) {
         const screenshotMessage =
           screenshotError instanceof Error
             ? screenshotError.message
             : String(screenshotError);
-        logStep(scope, `Failed to capture screenshot: ${screenshotMessage}`);
+        logger.warn(scope, `Failed to capture screenshot: ${screenshotMessage}`);
       }
     }
 
-    logStep(scope, `Application flow failed: ${errorMessage}`);
+    logger.error(scope, `Application flow failed: ${errorMessage}`);
     return {
       success: false,
       error: errorMessage,
@@ -220,45 +222,6 @@ async function applyToJob(
     };
   } finally {
     await browser.close();
-  }
-}
-
-type RunSummaryItem = {
-  targetName: string;
-  success: boolean;
-  durationMs: number;
-  confirmationId?: string;
-  error?: string;
-  screenshotPath?: string;
-};
-
-function printRunSummary(
-  summaryItems: RunSummaryItem[],
-  totalDurationMs: number
-): void {
-  const successCount = summaryItems.filter((item) => item.success).length;
-  const failureCount = summaryItems.length - successCount;
-
-  console.log("\n=== Run Summary ===");
-  console.log(`Targets: ${summaryItems.length}`);
-  console.log(`Successes: ${successCount}`);
-  console.log(`Failures: ${failureCount}`);
-  console.log(`Total Duration: ${totalDurationMs}ms`);
-
-  for (const item of summaryItems) {
-    if (item.success) {
-      console.log(
-        `- ${item.targetName}: success (${item.durationMs}ms, confirmation=${item.confirmationId})`
-      );
-      continue;
-    }
-
-    console.log(
-      `- ${item.targetName}: failed (${item.durationMs}ms, error=${item.error ?? "unknown"})`
-    );
-    if (item.screenshotPath) {
-      console.log(`  screenshot=${item.screenshotPath}`);
-    }
   }
 }
 
@@ -272,15 +235,15 @@ async function main() {
   const summaryItems: RunSummaryItem[] = [];
 
   for (const target of targets) {
-    console.log(`\n--- Applying to ${target.name} ---`);
+    logger.section(`Applying to ${target.name}`);
 
     try {
       const result = await applyToJob(target.url, sampleProfile);
 
       if (result.success) {
-        console.log(`  Application submitted!`);
-        console.log(`  Confirmation: ${result.confirmationId}`);
-        console.log(`  Duration: ${result.durationMs}ms`);
+        logger.success("Runner", `${target.name}: application submitted.`);
+        logger.info("Runner", `${target.name}: confirmation ${result.confirmationId}`);
+        logger.info("Runner", `${target.name}: duration ${result.durationMs}ms`);
         summaryItems.push({
           targetName: target.name,
           success: true,
@@ -288,9 +251,9 @@ async function main() {
           confirmationId: result.confirmationId,
         });
       } else {
-        console.error(`  Failed: ${result.error}`);
+        logger.error("Runner", `${target.name}: failed - ${result.error}`);
         if (result.screenshotPath) {
-          console.error(`  Screenshot: ${result.screenshotPath}`);
+          logger.warn("Runner", `${target.name}: screenshot ${result.screenshotPath}`);
         }
         summaryItems.push({
           targetName: target.name,
@@ -301,18 +264,19 @@ async function main() {
         });
       }
     } catch (err) {
-      console.error(`  Fatal error:`, err);
+      const fatalErrorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("Runner", `${target.name}: fatal error - ${fatalErrorMessage}`);
       summaryItems.push({
         targetName: target.name,
         success: false,
         durationMs: 0,
-        error: err instanceof Error ? err.message : String(err),
+        error: fatalErrorMessage,
       });
     }
   }
 
   const totalDurationMs = Date.now() - runStartTime;
-  printRunSummary(summaryItems, totalDurationMs);
+  logger.printRunSummary(summaryItems, totalDurationMs);
 }
 
 main();
