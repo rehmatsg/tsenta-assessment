@@ -9,11 +9,14 @@ import {
   setFile,
 } from "../utils/field-filler";
 
-async function clickStepContinue(page: Page, step: number): Promise<void> {
-  await page
-    .locator(`.form-step[data-step="${step}"] .btn-primary`)
-    .first()
-    .click();
+async function clickStepContinue(
+  page: Page,
+  step: number,
+  context: ATSHandlerContext
+): Promise<void> {
+  const continueButtonSelector = `.form-step[data-step="${step}"] .btn-primary`;
+  await context.human.scrollIntoView(page, continueButtonSelector);
+  await context.human.hoverAndClick(page, continueButtonSelector);
 }
 
 export const acmeHandler: ATSHandler = {
@@ -34,11 +37,11 @@ export const acmeHandler: ATSHandler = {
     context: ATSHandlerContext
   ): Promise<void> {
     context.logStep("Acme", "Step 1: filling personal information fields.");
-    await fillText(page, "#first-name", profile.firstName);
-    await fillText(page, "#last-name", profile.lastName);
-    await fillText(page, "#email", profile.email);
-    await fillText(page, "#phone", profile.phone);
-    await fillText(page, "#location", profile.location);
+    await context.human.typeText(page, "#first-name", profile.firstName);
+    await context.human.typeText(page, "#last-name", profile.lastName);
+    await context.human.typeText(page, "#email", profile.email);
+    await context.human.typeText(page, "#phone", profile.phone);
+    await context.human.typeText(page, "#location", profile.location);
 
     if (profile.linkedIn) {
       context.logStep("Acme", "LinkedIn profile provided, filling optional field.");
@@ -58,8 +61,9 @@ export const acmeHandler: ATSHandler = {
     }
 
     context.logStep("Acme", "Step 1 complete, continuing to step 2.");
-    await clickStepContinue(page, 1);
+    await clickStepContinue(page, 1, context);
     await page.waitForSelector('.form-step[data-step="2"].active');
+    await context.human.pause(40, 120);
 
     context.logStep(
       "Acme",
@@ -70,11 +74,12 @@ export const acmeHandler: ATSHandler = {
     await selectValue(page, "#education", profile.education);
 
     context.logStep("Acme", "Selecting school using typeahead.");
-    await fillText(page, "#school", profile.school);
+    await context.human.typeText(page, "#school", profile.school);
     const schoolOption = page.locator("#school-dropdown li", {
       hasText: profile.school,
     });
     await schoolOption.first().click();
+    await context.human.pause(40, 120);
 
     let selectedAcmeSkills = 0;
     for (const skill of profile.skills) {
@@ -91,8 +96,9 @@ export const acmeHandler: ATSHandler = {
     context.logStep("Acme", `Selected ${selectedAcmeSkills} matching skills.`);
 
     context.logStep("Acme", "Step 2 complete, continuing to step 3.");
-    await clickStepContinue(page, 2);
+    await clickStepContinue(page, 2, context);
     await page.waitForSelector('.form-step[data-step="3"].active');
+    await context.human.pause(40, 120);
 
     context.logStep(
       "Acme",
@@ -131,16 +137,19 @@ export const acmeHandler: ATSHandler = {
     }
 
     await selectValue(page, "#referral", profile.referralSource);
-    await fillText(page, "#cover-letter", profile.coverLetter);
+    await context.human.typeText(page, "#cover-letter", profile.coverLetter);
 
     context.logStep("Acme", "Step 3 complete, continuing to review step.");
-    await clickStepContinue(page, 3);
+    await clickStepContinue(page, 3, context);
     await page.waitForSelector('.form-step[data-step="4"].active');
+    await context.human.pause(40, 120);
   },
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Acme", "Step 4: agreeing to terms and submitting application.");
     await page.check("#terms-agree");
-    await page.click("#submit-btn");
+    await context.human.pause(120, 220);
+    await context.human.scrollIntoView(page, "#submit-btn");
+    await context.human.hoverAndClick(page, "#submit-btn");
 
     context.logStep("Acme", "Waiting for success confirmation.");
     await page.waitForSelector("#success-page", { state: "visible" });

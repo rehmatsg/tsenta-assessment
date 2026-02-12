@@ -2,6 +2,10 @@ import { chromium, type Page } from "playwright";
 import { acmeHandler } from "./handlers/acme";
 import { globexHandler } from "./handlers/globex";
 import { sampleProfile } from "./profile";
+import {
+  LOW_OVERHEAD_PROFILE_NAME,
+  createHumanLikeEngine,
+} from "./utils/human-like";
 import type { ATSHandler, ATSHandlerContext, PlatformId } from "./handlers/types";
 import type { ApplicationResult, UserProfile } from "./types";
 
@@ -53,6 +57,18 @@ function inferScopeFromUrl(url: string): string {
   return "Automator";
 }
 
+function readHumanSeed(): string | undefined {
+  const runtimeProcess = (
+    globalThis as {
+      process?: {
+        env?: Record<string, string | undefined>;
+      };
+    }
+  ).process;
+  const seed = runtimeProcess?.env?.HUMAN_SEED;
+  return seed && seed.trim() ? seed.trim() : undefined;
+}
+
 async function detectHandler(url: string, page: Page): Promise<ATSHandler | null> {
   for (const handler of handlers) {
     if (await handler.matches(url, page)) {
@@ -69,8 +85,17 @@ async function applyToJob(
 ): Promise<ApplicationResult> {
   const startTime = Date.now();
   let scope = inferScopeFromUrl(url);
+  const baseSeed = readHumanSeed();
+  const scopedSeed = baseSeed ? `${baseSeed}:${url}` : undefined;
+  const human = createHumanLikeEngine(scopedSeed);
 
   logStep(scope, `Launching browser in ${runHeadless ? "headless" : "headed"} mode.`);
+  logStep(
+    scope,
+    `Human-like profile: ${LOW_OVERHEAD_PROFILE_NAME}, seed mode: ${
+      scopedSeed ? "seeded" : "random"
+    }.`
+  );
   const browser = await chromium.launch({ headless: runHeadless });
 
   try {
@@ -94,6 +119,7 @@ async function applyToJob(
     const handlerContext: ATSHandlerContext = {
       resumePath,
       logStep,
+      human,
     };
 
     await handler.fillForm(page, profile, handlerContext);

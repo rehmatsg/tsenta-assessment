@@ -2,7 +2,6 @@ import type { Page } from "playwright";
 import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
 import {
-  ensureSectionOpen,
   fillOptionalText,
   fillText,
   selectValue,
@@ -70,7 +69,8 @@ async function fillGlobexSchool(
 ): Promise<void> {
   context.logStep("Globex", "Searching school with async typeahead.");
   const query = schoolName.slice(0, 8);
-  await fillText(page, "#g-school", query);
+  await context.human.typeText(page, "#g-school", query);
+  await context.human.pause(40, 120);
 
   await page.waitForSelector("#g-school-results.open", { timeout: 6000 });
 
@@ -89,6 +89,20 @@ async function fillGlobexSchool(
     "#g-school-results li:not(.typeahead-no-results)"
   );
   await fallbackOption.first().click();
+  await context.human.pause(40, 120);
+}
+
+async function ensureSectionOpenWithHuman(
+  page: Page,
+  sectionSelector: string,
+  openClass: string,
+  context: ATSHandlerContext
+): Promise<void> {
+  const sectionHeader = page.locator(sectionSelector).first();
+  const className = (await sectionHeader.getAttribute("class")) ?? "";
+  if (!className.includes(openClass)) {
+    await context.human.hoverAndClick(page, sectionSelector);
+  }
 }
 
 export const globexHandler: ATSHandler = {
@@ -108,16 +122,17 @@ export const globexHandler: ATSHandler = {
     context: ATSHandlerContext
   ): Promise<void> {
     context.logStep("Globex", "Section contact: filling personal/contact fields.");
-    await ensureSectionOpen(
+    await ensureSectionOpenWithHuman(
       page,
       '.application-section[data-section="contact"] .section-header',
-      "open"
+      "open",
+      context
     );
-    await fillText(page, "#g-fname", profile.firstName);
-    await fillText(page, "#g-lname", profile.lastName);
-    await fillText(page, "#g-email", profile.email);
-    await fillText(page, "#g-phone", profile.phone);
-    await fillText(page, "#g-city", normalizeCity(profile.location));
+    await context.human.typeText(page, "#g-fname", profile.firstName);
+    await context.human.typeText(page, "#g-lname", profile.lastName);
+    await context.human.typeText(page, "#g-email", profile.email);
+    await context.human.typeText(page, "#g-phone", profile.phone);
+    await context.human.typeText(page, "#g-city", normalizeCity(profile.location));
 
     if (profile.linkedIn) {
       context.logStep("Globex", "LinkedIn profile provided, filling optional field.");
@@ -140,16 +155,18 @@ export const globexHandler: ATSHandler = {
       "Globex",
       "Section qualifications: uploading resume and selecting qualification data."
     );
-    await ensureSectionOpen(
+    await ensureSectionOpenWithHuman(
       page,
       '.application-section[data-section="qualifications"] .section-header',
-      "open"
+      "open",
+      context
     );
     await setFile(page, "#g-resume", context.resumePath);
     await selectValue(page, "#g-experience", experienceToGlobex[profile.experienceLevel]);
     await selectValue(page, "#g-degree", educationToGlobex[profile.education]);
     await fillGlobexSchool(page, profile.school, context);
 
+    await context.human.scrollIntoView(page, "#g-skills");
     let selectedGlobexSkills = 0;
     for (const skill of profile.skills) {
       const mappedSkill = profileSkillToGlobex[skill.toLowerCase()];
@@ -172,8 +189,12 @@ export const globexHandler: ATSHandler = {
 
       const chipClass = (await chip.getAttribute("class")) ?? "";
       if (!chipClass.includes("selected")) {
-        await chip.click();
+        await context.human.hoverAndClick(
+          page,
+          `#g-skills .chip[data-skill="${mappedSkill}"]`
+        );
         selectedGlobexSkills += 1;
+        await context.human.pause(40, 120);
       }
     }
     context.logStep("Globex", `Selected ${selectedGlobexSkills} matching skills.`);
@@ -182,17 +203,24 @@ export const globexHandler: ATSHandler = {
       "Globex",
       "Section additional: setting authorization, compensation, source, and motivation."
     );
-    await ensureSectionOpen(
+    await ensureSectionOpenWithHuman(
       page,
       '.application-section[data-section="additional"] .section-header',
-      "open"
+      "open",
+      context
     );
+    await context.human.scrollIntoView(page, "#g-work-auth-toggle");
+    await context.human.pause(40, 120);
     await setToggleState(page, "#g-work-auth-toggle", profile.workAuthorized);
+    await context.human.pause(40, 120);
 
     if (profile.workAuthorized) {
       context.logStep("Globex", "Work authorization is true, evaluating visa toggle.");
       await page.waitForSelector("#g-visa-block.visible", { timeout: 2000 });
+      await context.human.scrollIntoView(page, "#g-visa-toggle");
+      await context.human.pause(40, 120);
       await setToggleState(page, "#g-visa-toggle", profile.requiresVisa);
+      await context.human.pause(40, 120);
     } else {
       context.logStep(
         "Globex",
@@ -218,16 +246,18 @@ export const globexHandler: ATSHandler = {
     if (sourceValue === "other") {
       context.logStep("Globex", "Referral mapped to other, filling source details.");
       await page.waitForSelector("#g-source-other-block.visible", { timeout: 2000 });
-      await fillText(page, "#g-source-other", profile.referralSource);
+      await context.human.typeText(page, "#g-source-other", profile.referralSource);
     }
 
-    await fillText(page, "#g-motivation", profile.coverLetter);
+    await context.human.typeText(page, "#g-motivation", profile.coverLetter);
     await page.check("#g-consent");
   },
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Globex", "Checking consent and submitting application.");
     await page.check("#g-consent");
-    await page.click("#globex-submit");
+    await context.human.scrollIntoView(page, "#globex-submit");
+    await context.human.pause(120, 220);
+    await context.human.hoverAndClick(page, "#globex-submit");
     context.logStep("Globex", "Waiting for confirmation section.");
     await page.waitForSelector("#globex-confirmation", { state: "visible" });
 
