@@ -3,31 +3,24 @@ import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
 import {
   checkByValue,
-  fillOptionalText,
   fillText,
   selectValue,
   setFile,
-  waitForRequiredSelector,
 } from "../utils/field-filler";
 import { withRetry } from "../utils/retry";
-
-const acmeStepTransitionRetry = {
-  attempts: 2,
-  initialDelayMs: 120,
-  backoffMultiplier: 1.4,
-} as const;
-
-const acmeTypeaheadRetry = {
-  attempts: 3,
-  initialDelayMs: 150,
-  backoffMultiplier: 1.5,
-} as const;
-
-const acmeSubmitRetry = {
-  attempts: 2,
-  initialDelayMs: 180,
-  backoffMultiplier: 1.6,
-} as const;
+import {
+  ACME_STEP_TRANSITION_RETRY_PROFILE,
+  ACME_SUBMIT_RETRY_PROFILE,
+  ACME_TYPEAHEAD_RETRY_PROFILE,
+  ACTION_PAUSE,
+  PRE_SUBMIT_PAUSE,
+  SINGLE_ATTEMPT_RETRY_PROFILE,
+} from "../utils/retry-profiles";
+import {
+  fillOptionalFieldWithLogs,
+  humanClickWithOptionalPause,
+  waitVisibleWithRetry,
+} from "./shared";
 
 async function clickStepContinue(
   page: Page,
@@ -35,8 +28,7 @@ async function clickStepContinue(
   context: ATSHandlerContext
 ): Promise<void> {
   const continueButtonSelector = `.form-step[data-step="${step}"] .btn-primary`;
-  await context.human.scrollIntoView(page, continueButtonSelector);
-  await context.human.hoverAndClick(page, continueButtonSelector);
+  await humanClickWithOptionalPause(page, continueButtonSelector, context);
 }
 
 async function waitForActiveStep(
@@ -44,21 +36,16 @@ async function waitForActiveStep(
   step: number,
   context: ATSHandlerContext
 ): Promise<void> {
-  await withRetry(
-    () =>
-      waitForRequiredSelector(
-        page,
-        `.form-step[data-step="${step}"].active`,
-        3000,
-        `Acme step ${step} did not become active`
-      ),
-    {
-      ...acmeStepTransitionRetry,
-      scope: "Acme",
-      step: `wait for step ${step}`,
-    },
-    context.logStep
-  );
+  await waitVisibleWithRetry({
+    page,
+    selector: `.form-step[data-step="${step}"].active`,
+    timeoutMs: 3000,
+    errorMessage: `Acme step ${step} did not become active`,
+    retryProfile: ACME_STEP_TRANSITION_RETRY_PROFILE,
+    scope: "Acme",
+    step: `wait for step ${step}`,
+    logStep: context.logStep,
+  });
 }
 
 export const acmeHandler: ATSHandler = {
@@ -85,27 +72,30 @@ export const acmeHandler: ATSHandler = {
     await context.human.typeText(page, "#phone", profile.phone);
     await context.human.typeText(page, "#location", profile.location);
 
-    if (profile.linkedIn) {
-      context.logStep("Acme", "LinkedIn profile provided, filling optional field.");
-      await fillOptionalText(page, "#linkedin", profile.linkedIn);
-    } else {
-      context.logStep("Acme", "LinkedIn profile not provided, skipping optional field.");
-    }
+    await fillOptionalFieldWithLogs({
+      page,
+      selector: "#linkedin",
+      value: profile.linkedIn,
+      scope: "Acme",
+      presentLog: "LinkedIn profile provided, filling optional field.",
+      skipLog: "LinkedIn profile not provided, skipping optional field.",
+      logStep: context.logStep,
+    });
 
-    if (profile.portfolio) {
-      context.logStep("Acme", "Portfolio/GitHub provided, filling optional field.");
-      await fillOptionalText(page, "#portfolio", profile.portfolio);
-    } else {
-      context.logStep(
-        "Acme",
-        "Portfolio/GitHub not provided, skipping optional field."
-      );
-    }
+    await fillOptionalFieldWithLogs({
+      page,
+      selector: "#portfolio",
+      value: profile.portfolio,
+      scope: "Acme",
+      presentLog: "Portfolio/GitHub provided, filling optional field.",
+      skipLog: "Portfolio/GitHub not provided, skipping optional field.",
+      logStep: context.logStep,
+    });
 
     context.logStep("Acme", "Step 1 complete, continuing to step 2.");
     await clickStepContinue(page, 1, context);
     await waitForActiveStep(page, 2, context);
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
     context.logStep(
       "Acme",
@@ -117,14 +107,18 @@ export const acmeHandler: ATSHandler = {
 
     context.logStep("Acme", "Selecting school using typeahead.");
     await context.human.typeText(page, "#school", profile.school);
+    await waitVisibleWithRetry({
+      page,
+      selector: "#school-dropdown li",
+      timeoutMs: 3000,
+      errorMessage: "Acme school suggestions did not appear",
+      retryProfile: ACME_TYPEAHEAD_RETRY_PROFILE,
+      scope: "Acme",
+      step: "wait for school suggestions",
+      logStep: context.logStep,
+    });
     await withRetry(
       async () => {
-        await waitForRequiredSelector(
-          page,
-          "#school-dropdown li",
-          3000,
-          "Acme school suggestions did not appear"
-        );
         const schoolOption = page.locator("#school-dropdown li", {
           hasText: profile.school,
         });
@@ -134,13 +128,13 @@ export const acmeHandler: ATSHandler = {
         await schoolOption.first().click();
       },
       {
-        ...acmeTypeaheadRetry,
+        ...ACME_TYPEAHEAD_RETRY_PROFILE,
         scope: "Acme",
         step: "select school suggestion",
       },
       context.logStep
     );
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
     let selectedAcmeSkills = 0;
     for (const skill of profile.skills) {
@@ -159,7 +153,7 @@ export const acmeHandler: ATSHandler = {
     context.logStep("Acme", "Step 2 complete, continuing to step 3.");
     await clickStepContinue(page, 2, context);
     await waitForActiveStep(page, 3, context);
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
     context.logStep(
       "Acme",
@@ -203,7 +197,7 @@ export const acmeHandler: ATSHandler = {
     context.logStep("Acme", "Step 3 complete, continuing to review step.");
     await clickStepContinue(page, 3, context);
     await waitForActiveStep(page, 4, context);
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
   },
   async submit(page: Page, context: ATSHandlerContext): Promise<string> {
     context.logStep("Acme", "Step 4: agreeing to terms and submitting application.");
@@ -211,18 +205,24 @@ export const acmeHandler: ATSHandler = {
     context.logStep("Acme", "Waiting for success confirmation.");
     await withRetry(
       async () => {
-        await context.human.pause(120, 220);
-        await context.human.scrollIntoView(page, "#submit-btn");
-        await context.human.hoverAndClick(page, "#submit-btn");
-        await waitForRequiredSelector(
-          page,
-          "#success-page",
-          6000,
-          "Acme success page did not appear after submit"
+        await context.human.pause(
+          PRE_SUBMIT_PAUSE.minMs,
+          PRE_SUBMIT_PAUSE.maxMs
         );
+        await humanClickWithOptionalPause(page, "#submit-btn", context);
+        await waitVisibleWithRetry({
+          page,
+          selector: "#success-page",
+          timeoutMs: 6000,
+          errorMessage: "Acme success page did not appear after submit",
+          retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+          scope: "Acme",
+          step: "wait for success page",
+          logStep: context.logStep,
+        });
       },
       {
-        ...acmeSubmitRetry,
+        ...ACME_SUBMIT_RETRY_PROFILE,
         scope: "Acme",
         step: "submit application and wait for success",
       },

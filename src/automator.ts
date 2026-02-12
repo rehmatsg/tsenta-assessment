@@ -180,6 +180,36 @@ type RunSummaryItem = {
   screenshotPath?: string;
 };
 
+function printRunSummary(
+  summaryItems: RunSummaryItem[],
+  totalDurationMs: number
+): void {
+  const successCount = summaryItems.filter((item) => item.success).length;
+  const failureCount = summaryItems.length - successCount;
+
+  console.log("\n=== Run Summary ===");
+  console.log(`Targets: ${summaryItems.length}`);
+  console.log(`Successes: ${successCount}`);
+  console.log(`Failures: ${failureCount}`);
+  console.log(`Total Duration: ${totalDurationMs}ms`);
+
+  for (const item of summaryItems) {
+    if (item.success) {
+      console.log(
+        `- ${item.targetName}: success (${item.durationMs}ms, confirmation=${item.confirmationId})`
+      );
+      continue;
+    }
+
+    console.log(
+      `- ${item.targetName}: failed (${item.durationMs}ms, error=${item.error ?? "unknown"})`
+    );
+    if (item.screenshotPath) {
+      console.log(`  screenshot=${item.screenshotPath}`);
+    }
+  }
+}
+
 // ── Entry point ──────────────────────────────────────────────
 async function main() {
   const runStartTime = Date.now();
@@ -229,29 +259,8 @@ async function main() {
     }
   }
 
-  const successCount = summaryItems.filter((item) => item.success).length;
-  const failureCount = summaryItems.length - successCount;
   const totalDurationMs = Date.now() - runStartTime;
-
-  console.log("\n=== Run Summary ===");
-  console.log(`Targets: ${summaryItems.length}`);
-  console.log(`Successes: ${successCount}`);
-  console.log(`Failures: ${failureCount}`);
-  console.log(`Total Duration: ${totalDurationMs}ms`);
-  for (const item of summaryItems) {
-    if (item.success) {
-      console.log(
-        `- ${item.targetName}: success (${item.durationMs}ms, confirmation=${item.confirmationId})`
-      );
-    } else {
-      console.log(
-        `- ${item.targetName}: failed (${item.durationMs}ms, error=${item.error ?? "unknown"})`
-      );
-      if (item.screenshotPath) {
-        console.log(`  screenshot=${item.screenshotPath}`);
-      }
-    }
-  }
+  printRunSummary(summaryItems, totalDurationMs);
 }
 
 main();

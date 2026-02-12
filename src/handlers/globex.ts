@@ -1,15 +1,21 @@
 import type { Page } from "playwright";
 import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
-import {
-  fillOptionalText,
-  fillText,
-  selectValue,
-  setFile,
-  setToggleState,
-  waitForRequiredSelector,
-} from "../utils/field-filler";
+import { fillText, selectValue, setFile, setToggleState } from "../utils/field-filler";
 import { withRetry } from "../utils/retry";
+import {
+  ACTION_PAUSE,
+  GLOBEX_SECTION_OPEN_RETRY_PROFILE,
+  GLOBEX_SUBMIT_RETRY_PROFILE,
+  GLOBEX_TYPEAHEAD_RETRY_PROFILE,
+  PRE_SUBMIT_PAUSE,
+  SINGLE_ATTEMPT_RETRY_PROFILE,
+} from "../utils/retry-profiles";
+import {
+  fillOptionalFieldWithLogs,
+  humanClickWithOptionalPause,
+  waitVisibleWithRetry,
+} from "./shared";
 
 const experienceToGlobex: Record<UserProfile["experienceLevel"], string> = {
   "0-1": "intern",
@@ -50,24 +56,6 @@ const profileSkillToGlobex: Record<string, string> = {
   graphql: "graphql",
 };
 
-const globexTypeaheadRetry = {
-  attempts: 3,
-  initialDelayMs: 180,
-  backoffMultiplier: 1.6,
-} as const;
-
-const globexSectionOpenRetry = {
-  attempts: 2,
-  initialDelayMs: 100,
-  backoffMultiplier: 1.3,
-} as const;
-
-const globexSubmitRetry = {
-  attempts: 2,
-  initialDelayMs: 180,
-  backoffMultiplier: 1.6,
-} as const;
-
 function normalizeCity(location: string): string {
   const [city] = location.split(",");
   return city?.trim() || location.trim();
@@ -92,14 +80,18 @@ async function fillGlobexSchool(
     async () => {
       const query = schoolName.slice(0, 8);
       await context.human.typeText(page, "#g-school", query);
-      await context.human.pause(40, 120);
+      await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
-      await waitForRequiredSelector(
+      await waitVisibleWithRetry({
         page,
-        "#g-school-results.open",
-        6000,
-        "Globex school results dropdown did not open"
-      );
+        selector: "#g-school-results.open",
+        timeoutMs: 6000,
+        errorMessage: "Globex school results dropdown did not open",
+        retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+        scope: "Globex",
+        step: "wait for school results dropdown",
+        logStep: context.logStep,
+      });
 
       const exactMatch = page.locator("#g-school-results li", { hasText: schoolName });
       if ((await exactMatch.count()) > 0) {
@@ -118,11 +110,12 @@ async function fillGlobexSchool(
       if ((await fallbackOption.count()) === 0) {
         throw new Error("No selectable school options found in Globex dropdown");
       }
+
       await fallbackOption.first().click();
-      await context.human.pause(40, 120);
+      await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
     },
     {
-      ...globexTypeaheadRetry,
+      ...GLOBEX_TYPEAHEAD_RETRY_PROFILE,
       scope: "Globex",
       step: "select school suggestion",
     },
@@ -142,16 +135,27 @@ async function ensureSectionOpenWithHuman(
       const sectionHeader = page.locator(sectionSelector).first();
       const className = (await sectionHeader.getAttribute("class")) ?? "";
       if (!className.includes(openClass)) {
-        await context.human.hoverAndClick(page, sectionSelector);
+        await humanClickWithOptionalPause(
+          page,
+          sectionSelector,
+          context,
+          ACTION_PAUSE
+        );
       }
 
-      const updatedClassName = (await sectionHeader.getAttribute("class")) ?? "";
-      if (!updatedClassName.includes(openClass)) {
-        throw new Error(`Globex section "${sectionName}" did not open`);
-      }
+      await waitVisibleWithRetry({
+        page,
+        selector: `${sectionSelector}.${openClass}`,
+        timeoutMs: 2000,
+        errorMessage: `Globex section "${sectionName}" did not open`,
+        retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+        scope: "Globex",
+        step: `verify ${sectionName} section is open`,
+        logStep: context.logStep,
+      });
     },
     {
-      ...globexSectionOpenRetry,
+      ...GLOBEX_SECTION_OPEN_RETRY_PROFILE,
       scope: "Globex",
       step: `open ${sectionName} section`,
     },
@@ -189,22 +193,25 @@ export const globexHandler: ATSHandler = {
     await context.human.typeText(page, "#g-phone", profile.phone);
     await context.human.typeText(page, "#g-city", normalizeCity(profile.location));
 
-    if (profile.linkedIn) {
-      context.logStep("Globex", "LinkedIn profile provided, filling optional field.");
-      await fillOptionalText(page, "#g-linkedin", profile.linkedIn);
-    } else {
-      context.logStep("Globex", "LinkedIn profile not provided, skipping optional field.");
-    }
+    await fillOptionalFieldWithLogs({
+      page,
+      selector: "#g-linkedin",
+      value: profile.linkedIn,
+      scope: "Globex",
+      presentLog: "LinkedIn profile provided, filling optional field.",
+      skipLog: "LinkedIn profile not provided, skipping optional field.",
+      logStep: context.logStep,
+    });
 
-    if (profile.portfolio) {
-      context.logStep("Globex", "Portfolio/GitHub provided, filling optional field.");
-      await fillOptionalText(page, "#g-website", profile.portfolio);
-    } else {
-      context.logStep(
-        "Globex",
-        "Portfolio/GitHub not provided, skipping optional field."
-      );
-    }
+    await fillOptionalFieldWithLogs({
+      page,
+      selector: "#g-website",
+      value: profile.portfolio,
+      scope: "Globex",
+      presentLog: "Portfolio/GitHub provided, filling optional field.",
+      skipLog: "Portfolio/GitHub not provided, skipping optional field.",
+      logStep: context.logStep,
+    });
 
     context.logStep(
       "Globex",
@@ -245,12 +252,13 @@ export const globexHandler: ATSHandler = {
 
       const chipClass = (await chip.getAttribute("class")) ?? "";
       if (!chipClass.includes("selected")) {
-        await context.human.hoverAndClick(
+        await humanClickWithOptionalPause(
           page,
-          `#g-skills .chip[data-skill="${mappedSkill}"]`
+          `#g-skills .chip[data-skill="${mappedSkill}"]`,
+          context,
+          ACTION_PAUSE
         );
         selectedGlobexSkills += 1;
-        await context.human.pause(40, 120);
       }
     }
     context.logStep("Globex", `Selected ${selectedGlobexSkills} matching skills.`);
@@ -267,17 +275,26 @@ export const globexHandler: ATSHandler = {
       context
     );
     await context.human.scrollIntoView(page, "#g-work-auth-toggle");
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
     await setToggleState(page, "#g-work-auth-toggle", profile.workAuthorized);
-    await context.human.pause(40, 120);
+    await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
     if (profile.workAuthorized) {
       context.logStep("Globex", "Work authorization is true, evaluating visa toggle.");
-      await page.waitForSelector("#g-visa-block.visible", { timeout: 2000 });
+      await waitVisibleWithRetry({
+        page,
+        selector: "#g-visa-block.visible",
+        timeoutMs: 2000,
+        errorMessage: "Globex visa block did not become visible",
+        retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+        scope: "Globex",
+        step: "wait for visa block",
+        logStep: context.logStep,
+      });
       await context.human.scrollIntoView(page, "#g-visa-toggle");
-      await context.human.pause(40, 120);
+      await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
       await setToggleState(page, "#g-visa-toggle", profile.requiresVisa);
-      await context.human.pause(40, 120);
+      await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
     } else {
       context.logStep(
         "Globex",
@@ -302,7 +319,16 @@ export const globexHandler: ATSHandler = {
 
     if (sourceValue === "other") {
       context.logStep("Globex", "Referral mapped to other, filling source details.");
-      await page.waitForSelector("#g-source-other-block.visible", { timeout: 2000 });
+      await waitVisibleWithRetry({
+        page,
+        selector: "#g-source-other-block.visible",
+        timeoutMs: 2000,
+        errorMessage: "Globex source-other block did not become visible",
+        retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+        scope: "Globex",
+        step: "wait for source-other block",
+        logStep: context.logStep,
+      });
       await context.human.typeText(page, "#g-source-other", profile.referralSource);
     }
 
@@ -316,17 +342,21 @@ export const globexHandler: ATSHandler = {
     await withRetry(
       async () => {
         await context.human.scrollIntoView(page, "#globex-submit");
-        await context.human.pause(120, 220);
-        await context.human.hoverAndClick(page, "#globex-submit");
-        await waitForRequiredSelector(
+        await context.human.pause(PRE_SUBMIT_PAUSE.minMs, PRE_SUBMIT_PAUSE.maxMs);
+        await humanClickWithOptionalPause(page, "#globex-submit", context);
+        await waitVisibleWithRetry({
           page,
-          "#globex-confirmation",
-          7000,
-          "Globex confirmation section did not appear after submit"
-        );
+          selector: "#globex-confirmation",
+          timeoutMs: 7000,
+          errorMessage: "Globex confirmation section did not appear after submit",
+          retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+          scope: "Globex",
+          step: "wait for confirmation section",
+          logStep: context.logStep,
+        });
       },
       {
-        ...globexSubmitRetry,
+        ...GLOBEX_SUBMIT_RETRY_PROFILE,
         scope: "Globex",
         step: "submit application and wait for confirmation",
       },

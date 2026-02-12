@@ -11,16 +11,10 @@ export async function fillText(
 export async function fillOptionalText(
   page: Page,
   selector: string,
-  value: string | undefined,
-  onSkip?: () => void
+  value: string | undefined
 ): Promise<void> {
   if (value) {
     await page.fill(selector, value);
-    return;
-  }
-
-  if (onSkip) {
-    onSkip();
   }
 }
 
@@ -46,18 +40,6 @@ export async function checkByValue(
   value: string
 ): Promise<void> {
   await page.check(`input[name="${name}"][value="${value}"]`);
-}
-
-export async function ensureSectionOpen(
-  page: Page,
-  sectionSelector: string,
-  openClass: string
-): Promise<void> {
-  const sectionHeader = page.locator(sectionSelector);
-  const className = (await sectionHeader.getAttribute("class")) ?? "";
-  if (!className.includes(openClass)) {
-    await sectionHeader.click();
-  }
 }
 
 export async function setToggleState(
