@@ -5,14 +5,17 @@
   "private": true,
   "scripts": {
     "serve": "npx serve mock-ats -p 3939",
-    "start": "npx tsx src/automator.ts"
+    "start": "npx tsx src/automator.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "playwright": "^1.52.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.2.3",
+    "serve": "^14.2.0",
     "tsx": "^4.19.0",
-    "serve": "^14.2.0"
+    "typescript": "^5.7.0"
   }
 }

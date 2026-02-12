@@ -7,7 +7,6 @@ import {
   selectValue,
   setFile,
 } from "../utils/field-filler";
-import { withRetry } from "../utils/retry";
 import {
   ACME_STEP_TRANSITION_RETRY_PROFILE,
   ACME_SUBMIT_RETRY_PROFILE,
@@ -26,6 +25,7 @@ import { runSection, type SectionController } from "./sections";
 import {
   fillOptionalFieldWithLogs,
   humanClickWithOptionalPause,
+  withOptionalRetry,
   waitVisibleWithRetry,
 } from "./shared";
 
@@ -50,31 +50,6 @@ const acmeSectionController: SectionController<AcmeSectionId> = {
     });
   },
 };
-
-async function withOptionalAcmeRetry<T>(
-  operation: () => Promise<T>,
-  context: ATSHandlerContext,
-  retryProfile: {
-    attempts: number;
-    initialDelayMs: number;
-    backoffMultiplier: number;
-  },
-  step: string
-): Promise<T> {
-  if (!context.options.features.enableRetries) {
-    return operation();
-  }
-
-  return withRetry(
-    operation,
-    {
-      ...retryProfile,
-      scope: "Acme",
-      step,
-    },
-    context.logStep
-  );
-}
 
 async function clickStepContinue(
   page: Page,
@@ -184,8 +159,8 @@ export const acmeHandler: ATSHandler = {
           enableRetries: context.options.features.enableRetries,
         });
 
-        await withOptionalAcmeRetry(
-          async () => {
+        await withOptionalRetry({
+          operation: async () => {
             const schoolOption = page.locator("#school-dropdown li", {
               hasText: profile.school,
             });
@@ -195,9 +170,10 @@ export const acmeHandler: ATSHandler = {
             await schoolOption.first().click();
           },
           context,
-          ACME_TYPEAHEAD_RETRY_PROFILE,
-          "select school suggestion"
-        );
+          retryProfile: ACME_TYPEAHEAD_RETRY_PROFILE,
+          scope: "Acme",
+          step: "select school suggestion",
+        });
         await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
 
         let selectedAcmeSkills = 0;
@@ -329,8 +305,8 @@ export const acmeHandler: ATSHandler = {
       fill: async () => {
         await page.check("#terms-agree");
         context.logStep("Acme", "Waiting for success confirmation.");
-        await withOptionalAcmeRetry(
-          async () => {
+        await withOptionalRetry({
+          operation: async () => {
             await context.human.pause(
               PRE_SUBMIT_PAUSE.minMs,
               PRE_SUBMIT_PAUSE.maxMs
@@ -349,9 +325,10 @@ export const acmeHandler: ATSHandler = {
             });
           },
           context,
-          ACME_SUBMIT_RETRY_PROFILE,
-          "submit application and wait for success"
-        );
+          retryProfile: ACME_SUBMIT_RETRY_PROFILE,
+          scope: "Acme",
+          step: "submit application and wait for success",
+        });
       },
     });
 

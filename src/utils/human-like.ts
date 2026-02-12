@@ -4,18 +4,18 @@ import type { HumanLikeEngine } from "../handlers/types";
 export const LOW_OVERHEAD_PROFILE_NAME = "low-overhead";
 
 export const humanDelayProfile = {
-  actionPauseMinMs: 40,
-  actionPauseMaxMs: 120,
-  hoverDwellMinMs: 35,
-  hoverDwellMaxMs: 90,
-  letterTypeMinMs: 12,
-  letterTypeMaxMs: 28,
-  digitTypeMinMs: 24,
-  digitTypeMaxMs: 40,
-  symbolTypeMinMs: 28,
-  symbolTypeMaxMs: 48,
-  preSubmitPauseMinMs: 120,
-  preSubmitPauseMaxMs: 220,
+  actionPauseMinMs: 120,
+  actionPauseMaxMs: 320,
+  hoverDwellMinMs: 90,
+  hoverDwellMaxMs: 220,
+  letterTypeMinMs: 55,
+  letterTypeMaxMs: 140,
+  digitTypeMinMs: 70,
+  digitTypeMaxMs: 170,
+  symbolTypeMinMs: 85,
+  symbolTypeMaxMs: 210,
+  preSubmitPauseMinMs: 350,
+  preSubmitPauseMaxMs: 800,
 } as const;
 
 export function hashStringToUint32(value: string): number {

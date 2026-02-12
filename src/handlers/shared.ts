@@ -47,6 +47,34 @@ type WaitVisibleWithRetryArgs = {
   enableRetries?: boolean;
 };
 
+type WithOptionalRetryArgs<T> = {
+  operation: () => Promise<T>;
+  context: ATSHandlerContext;
+  retryProfile: RetryProfile;
+  scope: string;
+  step: string;
+};
+
+export async function withOptionalRetry<T>(
+  args: WithOptionalRetryArgs<T>
+): Promise<T> {
+  const { operation, context, retryProfile, scope, step } = args;
+
+  if (!context.options.features.enableRetries) {
+    return operation();
+  }
+
+  return withRetry(
+    operation,
+    {
+      ...retryProfile,
+      scope,
+      step,
+    },
+    context.logStep
+  );
+}
+
 export async function waitVisibleWithRetry(
   args: WaitVisibleWithRetryArgs
 ): Promise<void> {

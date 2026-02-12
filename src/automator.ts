@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import process from "node:process";
-import { chromium, type Page } from "playwright";
+import { chromium, type BrowserContext, type Page } from "playwright";
 import { acmeHandler } from "./handlers/acme";
 import { globexHandler } from "./handlers/globex";
 import { sampleProfile } from "./profile";
@@ -42,11 +42,13 @@ import type { ApplicationResult, UserProfile } from "./types";
 const BASE_URL = "http://localhost:3939";
 const resumePath = "fixtures/sample-resume.pdf";
 const failureArtifactsDir = "artifacts/failures";
+const traceArtifactsDir = "artifacts/traces";
 const runHeadless = resolveRunHeadless(); // Defaults to headless; use --headful to override.
 const defaultRuntimeOptions: ATSRuntimeOptions = {
   features: {
     enableRetries: true,
     captureFailureScreenshots: true,
+    captureTrace: true,
   },
   timeouts: {
     stepTransitionMs: 3000,
@@ -57,6 +59,7 @@ const defaultRuntimeOptions: ATSRuntimeOptions = {
   },
   artifacts: {
     failureScreenshotDir: failureArtifactsDir,
+    traceDir: traceArtifactsDir,
   },
 };
 
@@ -65,6 +68,26 @@ const logger = createLogger();
 
 function logStep(scope: string, message: string): void {
   logger.step(scope, message);
+}
+
+function createStepTimer(): ATSHandlerContext["measureStep"] {
+  return async <T>(
+    scope: string,
+    step: string,
+    action: () => Promise<T>
+  ): Promise<T> => {
+    const stepStartMs = Date.now();
+    logger.info(scope, `Start: ${step}.`);
+
+    try {
+      const result = await action();
+      logger.info(scope, `Done: ${step} (${Date.now() - stepStartMs}ms).`);
+      return result;
+    } catch (error) {
+      logger.error(scope, `Failed: ${step} (${Date.now() - stepStartMs}ms).`);
+      throw error;
+    }
+  };
 }
 
 function platformToScope(platform: PlatformId): string {
@@ -95,6 +118,11 @@ function toScopeSlug(scope: string): string {
 function buildFailureScreenshotPath(scope: string, artifactsDir: string): string {
   const scopeSlug = toScopeSlug(scope);
   return `${artifactsDir}/${scopeSlug}-${Date.now()}.png`;
+}
+
+function buildTracePath(scope: string, artifactsDir: string): string {
+  const scopeSlug = toScopeSlug(scope);
+  return `${artifactsDir}/${scopeSlug}-${Date.now()}.zip`;
 }
 
 function readHumanSeed(): string | undefined {
@@ -139,7 +167,10 @@ async function applyToJob(
   const scopedSeed = baseSeed ? `${baseSeed}:${url}` : undefined;
   const human = createHumanLikeEngine(scopedSeed);
   const runtimeOptions = defaultRuntimeOptions;
+  const measureStep = createStepTimer();
+  let browserContext: BrowserContext | null = null;
   let page: Page | null = null;
+  let traceStarted = false;
 
   logStep(scope, `Launching browser in ${runHeadless ? "headless" : "headed"} mode.`);
   logStep(
@@ -151,7 +182,23 @@ async function applyToJob(
   const browser = await chromium.launch({ headless: runHeadless });
 
   try {
-    const browserContext = await browser.newContext();
+    browserContext = await browser.newContext();
+    if (runtimeOptions.features.captureTrace) {
+      try {
+        await mkdir(runtimeOptions.artifacts.traceDir, { recursive: true });
+        await browserContext.tracing.start({
+          screenshots: true,
+          snapshots: true,
+          sources: true,
+        });
+        traceStarted = true;
+      } catch (traceError) {
+        const traceErrorMessage =
+          traceError instanceof Error ? traceError.message : String(traceError);
+        logger.warn(scope, `Failed to start trace recording: ${traceErrorMessage}`);
+      }
+    }
+
     page = await browserContext.newPage();
     logStep(scope, `Navigating to ${url}.`);
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -167,6 +214,7 @@ async function applyToJob(
       logStep,
       human,
       options: runtimeOptions,
+      measureStep,
     };
 
     await handler.fillForm(page, profile, handlerContext);
@@ -210,6 +258,21 @@ async function applyToJob(
       durationMs: Date.now() - startTime,
     };
   } finally {
+    if (browserContext && traceStarted) {
+      try {
+        await mkdir(runtimeOptions.artifacts.traceDir, { recursive: true });
+        const tracePath = buildTracePath(scope, runtimeOptions.artifacts.traceDir);
+        await browserContext.tracing.stop({ path: tracePath });
+        logger.info(scope, `Saved trace: ${tracePath}`);
+      } catch (traceStopError) {
+        const traceStopMessage =
+          traceStopError instanceof Error
+            ? traceStopError.message
+            : String(traceStopError);
+        logger.warn(scope, `Failed to save trace: ${traceStopMessage}`);
+      }
+    }
+
     await browser.close();
   }
 }

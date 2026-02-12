@@ -2,7 +2,6 @@ import type { Page } from "playwright";
 import type { ATSHandler, ATSHandlerContext } from "./types";
 import type { UserProfile } from "../types";
 import { fillText, selectValue, setFile, setToggleState } from "../utils/field-filler";
-import { withRetry } from "../utils/retry";
 import {
   ACTION_PAUSE,
   GLOBEX_SECTION_OPEN_RETRY_PROFILE,
@@ -21,6 +20,7 @@ import { runSection, type SectionController } from "./sections";
 import {
   fillOptionalFieldWithLogs,
   humanClickWithOptionalPause,
+  withOptionalRetry,
   waitVisibleWithRetry,
 } from "./shared";
 
@@ -56,31 +56,6 @@ function resolveGlobexConfirmationTimeoutMs(context: ATSHandlerContext): number 
   return Math.max(context.options.timeouts.confirmationMs, 7000);
 }
 
-async function withOptionalGlobexRetry<T>(
-  operation: () => Promise<T>,
-  context: ATSHandlerContext,
-  retryProfile: {
-    attempts: number;
-    initialDelayMs: number;
-    backoffMultiplier: number;
-  },
-  step: string
-): Promise<T> {
-  if (!context.options.features.enableRetries) {
-    return operation();
-  }
-
-  return withRetry(
-    operation,
-    {
-      ...retryProfile,
-      scope: "Globex",
-      step,
-    },
-    context.logStep
-  );
-}
-
 const globexSectionController: SectionController<GlobexSectionId> = {
   async ensureActive(
     page: Page,
@@ -88,8 +63,8 @@ const globexSectionController: SectionController<GlobexSectionId> = {
     context: ATSHandlerContext
   ): Promise<void> {
     const sectionSelector = toSectionSelector(sectionId);
-    await withOptionalGlobexRetry(
-      async () => {
+    await withOptionalRetry({
+      operation: async () => {
         const sectionHeader = page.locator(sectionSelector).first();
         const className = (await sectionHeader.getAttribute("class")) ?? "";
         if (!className.includes("open")) {
@@ -114,9 +89,10 @@ const globexSectionController: SectionController<GlobexSectionId> = {
         });
       },
       context,
-      GLOBEX_SECTION_OPEN_RETRY_PROFILE,
-      toSectionOpenStepName(sectionId)
-    );
+      retryProfile: GLOBEX_SECTION_OPEN_RETRY_PROFILE,
+      scope: "Globex",
+      step: toSectionOpenStepName(sectionId),
+    });
   },
 };
 
@@ -126,8 +102,8 @@ async function fillGlobexSchool(
   context: ATSHandlerContext
 ): Promise<void> {
   context.logStep("Globex", "Searching school with async typeahead.");
-  await withOptionalGlobexRetry(
-    async () => {
+  await withOptionalRetry({
+    operation: async () => {
       const query = schoolName.slice(0, 8);
       await context.human.typeText(page, "#g-school", query);
       await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
@@ -166,9 +142,10 @@ async function fillGlobexSchool(
       await context.human.pause(ACTION_PAUSE.minMs, ACTION_PAUSE.maxMs);
     },
     context,
-    GLOBEX_TYPEAHEAD_RETRY_PROFILE,
-    "select school suggestion"
-  );
+    retryProfile: GLOBEX_TYPEAHEAD_RETRY_PROFILE,
+    scope: "Globex",
+    step: "select school suggestion",
+  });
 }
 
 export const globexHandler: ATSHandler = {
@@ -352,27 +329,30 @@ export const globexHandler: ATSHandler = {
     context.logStep("Globex", "Checking consent and submitting application.");
     await page.check("#g-consent");
     context.logStep("Globex", "Waiting for confirmation section.");
-    await withOptionalGlobexRetry(
-      async () => {
-        await context.human.scrollIntoView(page, "#globex-submit");
-        await context.human.pause(PRE_SUBMIT_PAUSE.minMs, PRE_SUBMIT_PAUSE.maxMs);
-        await humanClickWithOptionalPause(page, "#globex-submit", context);
-        await waitVisibleWithRetry({
-          page,
-          selector: "#globex-confirmation",
-          timeoutMs: resolveGlobexConfirmationTimeoutMs(context),
-          errorMessage: "Globex confirmation section did not appear after submit",
-          retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
-          scope: "Globex",
-          step: "wait for confirmation section",
-          logStep: context.logStep,
-          enableRetries: context.options.features.enableRetries,
-        });
-      },
-      context,
-      GLOBEX_SUBMIT_RETRY_PROFILE,
-      "submit application and wait for confirmation"
-    );
+    await context.measureStep("Globex", "submit", async () => {
+      await withOptionalRetry({
+        operation: async () => {
+          await context.human.scrollIntoView(page, "#globex-submit");
+          await context.human.pause(PRE_SUBMIT_PAUSE.minMs, PRE_SUBMIT_PAUSE.maxMs);
+          await humanClickWithOptionalPause(page, "#globex-submit", context);
+          await waitVisibleWithRetry({
+            page,
+            selector: "#globex-confirmation",
+            timeoutMs: resolveGlobexConfirmationTimeoutMs(context),
+            errorMessage: "Globex confirmation section did not appear after submit",
+            retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+            scope: "Globex",
+            step: "wait for confirmation section",
+            logStep: context.logStep,
+            enableRetries: context.options.features.enableRetries,
+          });
+        },
+        context,
+        retryProfile: GLOBEX_SUBMIT_RETRY_PROFILE,
+        scope: "Globex",
+        step: "submit application and wait for confirmation",
+      });
+    });
 
     const reference = (await page.locator("#globex-ref").innerText()).trim();
     context.logStep("Globex", `Submission completed with reference ${reference}.`);

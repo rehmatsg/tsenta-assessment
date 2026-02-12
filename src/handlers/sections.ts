@@ -28,6 +28,11 @@ export async function runSection<TSectionId extends string | number>(
     context.logStep(scope, enterLog);
   }
 
-  await controller.ensureActive(page, sectionId, context);
-  await fill();
+  const stepLabel =
+    typeof sectionId === "number" ? `step ${sectionId}` : `section ${sectionId}`;
+
+  await context.measureStep(scope, stepLabel, async () => {
+    await controller.ensureActive(page, sectionId, context);
+    await fill();
+  });
 }

@@ -14,6 +14,7 @@ export interface ATSRuntimeOptions {
   features: {
     enableRetries: boolean;
     captureFailureScreenshots: boolean;
+    captureTrace: boolean;
   };
   timeouts: {
     stepTransitionMs: number;
@@ -24,6 +25,7 @@ export interface ATSRuntimeOptions {
   };
   artifacts: {
     failureScreenshotDir: string;
+    traceDir: string;
   };
 }
 
@@ -32,6 +34,11 @@ export interface ATSHandlerContext {
   logStep: (scope: string, message: string) => void;
   human: HumanLikeEngine;
   options: ATSRuntimeOptions;
+  measureStep: <T>(
+    scope: string,
+    step: string,
+    action: () => Promise<T>
+  ) => Promise<T>;
 }
 
 export interface ATSHandler {
