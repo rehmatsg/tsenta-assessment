@@ -183,8 +183,10 @@ npm run test:e2e
 
 ## Sample Video Artifact
 
-- Sample recording from a real run: [`artifacts/examples/acme-run-sample.webm`](artifacts/examples/acme-run-sample.webm)
+- Sample recording from a real run: [`artifacts/examples/acme-run-sample.mp4`](artifacts/examples/acme-run-sample.mp4)
 - Runtime recordings are generated under `artifacts/videos/` and one sample file is copied into `artifacts/examples/`.
+
+<video src="artifacts/examples/acme-run-sample.mp4" controls preload="metadata" width="960"></video>
 
 ## Example Run Logs
 
