@@ -280,10 +280,34 @@ export const acmeHandler: ATSHandler = {
           );
         }
 
-        await selectValue(
-          page,
-          "#referral",
-          mapReferralSource("acme", profile.referralSource)
+        const mappedReferralSource = mapReferralSource("acme", profile.referralSource);
+        await selectValue(page, "#referral", mappedReferralSource);
+        if (mappedReferralSource === "other") {
+          context.logStep(
+            "Acme",
+            "Referral source is other, filling additional referral details."
+          );
+          await waitVisibleWithRetry({
+            page,
+            selector: "#referral-other-group",
+            timeoutMs: context.options.timeouts.conditionalRevealMs,
+            errorMessage: "Acme referral other field did not become visible",
+            retryProfile: SINGLE_ATTEMPT_RETRY_PROFILE,
+            scope: "Acme",
+            step: "wait for referral other details field",
+            logStep: context.logStep,
+            enableRetries: context.options.features.enableRetries,
+          });
+          const referralDetails =
+            profile.referralSource.trim().toLowerCase() === "other"
+              ? "Other source"
+              : profile.referralSource;
+          await context.human.typeText(page, "#referral-other", referralDetails);
+        }
+
+        context.logStep(
+          "Acme",
+          "Skipping optional demographics section because profile has no demographic data."
         );
         await context.human.typeText(page, "#cover-letter", profile.coverLetter);
       },

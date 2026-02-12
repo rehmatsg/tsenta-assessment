@@ -11,6 +11,31 @@ type PlatformMappingRegistry = {
   skill: Record<string, string>;
 };
 
+const acmeReferralSourceMap: Record<string, string> = {
+  linkedin: "linkedin",
+  "company-website": "company-website",
+  "job-board": "job-board",
+  referral: "referral",
+  university: "university",
+  other: "other",
+};
+
+const acmeSkillAliases: Record<string, string> = {
+  javascript: "javascript",
+  js: "javascript",
+  typescript: "typescript",
+  ts: "typescript",
+  python: "python",
+  py: "python",
+  react: "react",
+  reactjs: "react",
+  node: "nodejs",
+  nodejs: "nodejs",
+  sql: "sql",
+  git: "git",
+  docker: "docker",
+};
+
 export const mappingRegistry: Record<PlatformId, PlatformMappingRegistry> = {
   acme: {
     experienceLevel: {
@@ -27,8 +52,8 @@ export const mappingRegistry: Record<PlatformId, PlatformMappingRegistry> = {
       masters: "masters",
       phd: "phd",
     },
-    referralSource: {},
-    skill: {},
+    referralSource: acmeReferralSourceMap,
+    skill: acmeSkillAliases,
   },
   globex: {
     experienceLevel: {
@@ -84,20 +109,32 @@ export function mapEducation(
 }
 
 export function mapReferralSource(platform: PlatformId, value: string): string {
-  if (platform === "acme") {
-    return value;
+  const normalizedValue = value.trim().toLowerCase();
+  const mapped = mappingRegistry[platform].referralSource[normalizedValue];
+
+  if (mapped) {
+    return mapped;
   }
 
-  const normalizedValue = value.toLowerCase();
-  return mappingRegistry.globex.referralSource[normalizedValue] ?? "other";
+  // Keep unknown referral values submission-safe on both forms.
+  return "other";
 }
 
 export function mapSkill(platform: PlatformId, rawSkill: string): string | null {
-  const normalizedSkill = rawSkill.toLowerCase();
+  const normalizedSkill = normalizeSkillLowercase(rawSkill);
+  const aliasKey = normalizeSkillAliasKey(rawSkill);
 
   if (platform === "acme") {
-    return normalizedSkill;
+    return mappingRegistry.acme.skill[aliasKey] ?? normalizedSkill;
   }
 
   return mappingRegistry.globex.skill[normalizedSkill] ?? null;
+}
+
+function normalizeSkillLowercase(rawSkill: string): string {
+  return rawSkill.trim().toLowerCase();
+}
+
+function normalizeSkillAliasKey(rawSkill: string): string {
+  return normalizeSkillLowercase(rawSkill).replace(/[^a-z0-9]/g, "");
 }

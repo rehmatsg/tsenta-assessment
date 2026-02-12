@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import process from "node:process";
 import { chromium, type Page } from "playwright";
 import { acmeHandler } from "./handlers/acme";
 import { globexHandler } from "./handlers/globex";
@@ -96,29 +98,13 @@ function buildFailureScreenshotPath(scope: string, artifactsDir: string): string
 }
 
 function readHumanSeed(): string | undefined {
-  const runtimeProcess = (
-    globalThis as {
-      process?: {
-        env?: Record<string, string | undefined>;
-      };
-    }
-  ).process;
-  const seed = runtimeProcess?.env?.HUMAN_SEED;
+  const seed = process.env.HUMAN_SEED;
   return seed && seed.trim() ? seed.trim() : undefined;
 }
 
 function resolveRunHeadless(): boolean {
-  const runtimeProcess = (
-    globalThis as {
-      process?: {
-        argv?: string[];
-        env?: Record<string, string | undefined>;
-      };
-    }
-  ).process;
-
-  const args = runtimeProcess?.argv ?? [];
-  const npmHeadfulFlag = runtimeProcess?.env?.npm_config_headful === "true";
+  const args = process.argv;
+  const npmHeadfulFlag = process.env.npm_config_headful === "true";
   const hasHeadfulFlag = args.includes("--headful") || npmHeadfulFlag;
   const hasHeadlessFlag = args.includes("--headless");
 
@@ -196,11 +182,14 @@ async function applyToJob(
     const errorMessage = err instanceof Error ? err.message : String(err);
     let screenshotPath: string | undefined;
     if (page && runtimeOptions.features.captureFailureScreenshots) {
-      const candidatePath = buildFailureScreenshotPath(
-        scope,
-        runtimeOptions.artifacts.failureScreenshotDir
-      );
       try {
+        await mkdir(runtimeOptions.artifacts.failureScreenshotDir, {
+          recursive: true,
+        });
+        const candidatePath = buildFailureScreenshotPath(
+          scope,
+          runtimeOptions.artifacts.failureScreenshotDir
+        );
         await page.screenshot({ path: candidatePath, fullPage: true });
         screenshotPath = candidatePath;
         logger.info(scope, `Captured failure screenshot: ${candidatePath}`);

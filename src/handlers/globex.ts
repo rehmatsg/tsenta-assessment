@@ -345,7 +345,6 @@ export const globexHandler: ATSHandler = {
         }
 
         await context.human.typeText(page, "#g-motivation", profile.coverLetter);
-        await page.check("#g-consent");
       },
     });
   },

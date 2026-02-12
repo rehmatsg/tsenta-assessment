@@ -16,8 +16,6 @@ export const humanDelayProfile = {
   symbolTypeMaxMs: 48,
   preSubmitPauseMinMs: 120,
   preSubmitPauseMaxMs: 220,
-  longTextThreshold: 120,
-  longTextTypedPrefix: 12,
 } as const;
 
 export function hashStringToUint32(value: string): number {
@@ -118,32 +116,8 @@ export function createHumanLikeEngine(seed?: string): HumanLikeEngine {
         return;
       }
 
-      const shouldUseLongTextPath =
-        value.length > humanDelayProfile.longTextThreshold;
-      if (shouldUseLongTextPath) {
-        const prefix = value.slice(0, humanDelayProfile.longTextTypedPrefix);
-        const remainder = value.slice(humanDelayProfile.longTextTypedPrefix);
-
-        for (const character of prefix) {
-          await locator.type(character, {
-            delay: resolveTypeDelay(character, random),
-          });
-        }
-
-        if (remainder) {
-          await locator.evaluate((el, chunk) => {
-            const field = el as HTMLInputElement | HTMLTextAreaElement;
-            field.value += chunk;
-            field.dispatchEvent(new Event("input", { bubbles: true }));
-            field.dispatchEvent(new Event("change", { bubbles: true }));
-          }, remainder);
-        }
-
-        return;
-      }
-
       for (const character of value) {
-        await locator.type(character, {
+        await locator.pressSequentially(character, {
           delay: resolveTypeDelay(character, random),
         });
       }
